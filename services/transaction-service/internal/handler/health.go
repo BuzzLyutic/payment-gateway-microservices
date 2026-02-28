@@ -21,11 +21,13 @@ type Pinger interface {
 
 type HealthHandler struct{
 	db Pinger
+	redis Pinger
 }
 
-func NewHealthHandler(db Pinger) *HealthHandler {
+func NewHealthHandler(db, redis Pinger) *HealthHandler {
 	return &HealthHandler{
 		db: db,
+		redis: redis,
 	}
 }
 
@@ -40,6 +42,7 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Second)
 	defer cancel()
 
+	// PostgreSQL
 	if err := h.db.Ping(ctx); err != nil {
 		checks["database"] = "unavailable"
 		overallStatus = "unhealthy"
@@ -48,7 +51,14 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 		checks["database"] = "ok"
 	}
 
-	checks["redis"] = "ok"
+	// Redis
+	if err := h.redis.Ping(ctx); err != nil {
+		checks["redis"] = "unavailable"
+		overallStatus = "unhealthy"
+		slog.Error("health check: redis unavailable", "error", err)
+	} else {
+		checks["redis"] = "ok"
+	}
 
 	resp := HealthResponse{
 		Status: overallStatus,

@@ -11,8 +11,10 @@ import (
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -33,14 +35,27 @@ func main() {
 	}
 	defer repo.Close()
 
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.Redis.Addr,
+	})
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		slog.Error("failed to connect to redis", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("connected to Redis")
+
+	idempotencyStore := idempotency.NewStore(rdb)
+	defer idempotencyStore.Close()
+
 	txService := service.New(repo)
 
 	// Роутер
 	mux := http.NewServeMux()
 
 	// Регистрация хэндлеров
-	handler.NewHealthHandler(repo).Register(mux)
-	handler.NewPaymentHandler(txService).Register(mux)
+	handler.NewHealthHandler(repo, idempotencyStore).Register(mux)
+	handler.NewPaymentHandler(txService, idempotencyStore).Register(mux)
 
 	srv := &http.Server{
 		Addr: ":" + cfg.Server.Port,
