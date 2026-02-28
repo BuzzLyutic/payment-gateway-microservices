@@ -42,10 +42,10 @@ type Transaction struct {
 	Amount         int64             `json:"amount"`
 	Currency       string            `json:"currency"`
 	Status         Status            `json:"status"`
-	Description    string            `json:"description,omitempty"`
-	Provider       string            `json:"provider,omitempty"`
-	ProviderTxID   string            `json:"provider_tx_id,omitempty"`
-	ErrorMessage   string            `json:"error_message,omitempty"`
+	Description    *string           `json:"description,omitempty"`   
+	Provider       *string           `json:"provider,omitempty"`       
+	ProviderTxID   *string           `json:"provider_tx_id,omitempty"` 
+	ErrorMessage   *string           `json:"error_message,omitempty"`  
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`

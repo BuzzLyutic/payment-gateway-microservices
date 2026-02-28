@@ -8,9 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
+
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
 )
 
 func main() {
@@ -31,12 +33,14 @@ func main() {
 	}
 	defer repo.Close()
 
+	txService := service.New(repo)
+
 	// Роутер
 	mux := http.NewServeMux()
 
-	// Объявление и регистрация хэндлера
-	healthHandler := handler.NewHealthHandler(repo)
-	healthHandler.Register(mux)
+	// Регистрация хэндлеров
+	handler.NewHealthHandler(repo).Register(mux)
+	handler.NewPaymentHandler(txService).Register(mux)
 
 	srv := &http.Server{
 		Addr: ":" + cfg.Server.Port,

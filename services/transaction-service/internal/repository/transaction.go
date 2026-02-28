@@ -2,9 +2,13 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,4 +47,82 @@ func (tr *TransactionRepository) Ping(ctx context.Context) error {
 
 func (tr *TransactionRepository) Close() {
 	tr.pool.Close()
+}
+
+
+// Create вставляет новую транзакцию и возвращает её с заполненными id, created_at, updated_at.
+func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transaction) error {
+	metadataJSON, err := json.Marshal(tx.Metadata)
+	if err != nil {
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+
+	query := `
+		INSERT INTO transactions (
+			idempotency_key, merchant_id, amount, currency,
+			status, description, metadata
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at, updated_at`
+
+	err = tr.pool.QueryRow(ctx, query,
+		tx.IdempotencyKey,
+		tx.MerchantID,
+		tx.Amount,
+		tx.Currency,
+		tx.Status,
+		tx.Description,
+		metadataJSON,
+	).Scan(&tx.ID, &tx.CreatedAt, &tx.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("insert transaction: %w", err)
+	}
+
+	return nil
+}
+
+
+// GetByID возвращает транзакцию по ID.
+func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain.Transaction, error) {
+	query := `
+		SELECT id, idempotency_key, merchant_id, amount, currency,
+		       status, description, provider, provider_tx_id,
+		       error_message, metadata, created_at, updated_at
+		FROM transactions
+		WHERE id = $1`
+
+	tx := &domain.Transaction{}
+	var metadataJSON []byte
+
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&tx.ID,
+		&tx.IdempotencyKey,
+		&tx.MerchantID,
+		&tx.Amount,
+		&tx.Currency,
+		&tx.Status,
+		&tx.Description,
+		&tx.Provider,
+		&tx.ProviderTxID,
+		&tx.ErrorMessage,
+		&metadataJSON,
+		&tx.CreatedAt,
+		&tx.UpdatedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query transaction: %w", err)
+	}
+
+	// Парсим JSONB - map
+	if metadataJSON != nil {
+		if err := json.Unmarshal(metadataJSON, &tx.Metadata); err != nil {
+			return nil, fmt.Errorf("unmarshal metadata: %w", err)
+		}
+	}
+
+	return tx, nil
 }
