@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 )
 
 func main() {
@@ -17,14 +19,27 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	// Загрузка конфигурации
+	cfg := config.Load()
+
+	// Подключение к БД
+	ctx := context.Background()
+	repo, err := repository.New(ctx, cfg.Database.DSN())
+	if err != nil {
+		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer repo.Close()
+
+	// Роутер
 	mux := http.NewServeMux()
 
 	// Объявление и регистрация хэндлера
-	healthHandler := handler.NewHealthHandler()
+	healthHandler := handler.NewHealthHandler(repo)
 	healthHandler.Register(mux)
 
 	srv := &http.Server{
-		Addr: ":8080",
+		Addr: ":" + cfg.Server.Port,
 		Handler: mux,
 		ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -46,7 +61,7 @@ func main() {
 
 	slog.Info("received shutdown signal", "signal", sig.String())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
