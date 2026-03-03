@@ -12,8 +12,10 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/worker"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -35,6 +37,7 @@ func main() {
 	}
 	defer repo.Close()
 
+	// Redis
 	rdb := redis.NewClient(&redis.Options{
 		Addr: cfg.Redis.Addr,
 	})
@@ -48,7 +51,9 @@ func main() {
 	idempotencyStore := idempotency.NewStore(rdb)
 	defer idempotencyStore.Close()
 
-	txService := service.New(repo)
+	// Provider + Service
+	mockProvider := provider.NewMockProvider()
+	txService := service.New(repo, mockProvider)
 
 	// Роутер
 	mux := http.NewServeMux()
@@ -65,6 +70,13 @@ func main() {
 		IdleTimeout: 60 * time.Second,
 	}
 
+	// Worker - отдельный контекст с cancel для graceful shutdown
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	defer workerCancel()
+
+	w := worker.New(txService, cfg.Worker.Interval, cfg.Worker.BatchSize)
+	go w.Run(workerCtx)
+
 	go func() {
 		slog.Info("starting server", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -80,12 +92,17 @@ func main() {
 
 	slog.Info("received shutdown signal", "signal", sig.String())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	// 1 - Останавливаем воркер - не берёт новые задачи
+	workerCancel()
+
+	// 2 - Останавливаем HTTP-сервер - дожидаемся текущих запросов
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
 		os.Exit(1)
 	}
+
 	slog.Info("server stopped gracefully")
 }

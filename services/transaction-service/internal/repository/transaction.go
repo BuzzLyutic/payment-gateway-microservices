@@ -126,3 +126,88 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain
 
 	return tx, nil
 }
+
+
+// FetchPending атомарно выбирает pending-транзакции и переводит их в processing.
+// FOR UPDATE SKIP LOCKED безопасно при нескольких инстансах воркера.
+func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]*domain.Transaction, error) {
+	query := `
+		WITH pending AS (
+			SELECT id
+			FROM transactions
+			WHERE status = 'pending'
+			ORDER BY created_at ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE transactions t
+		SET status = 'processing'
+		FROM pending p
+		WHERE t.id = p.id
+		RETURNING t.id, t.idempotency_key, t.merchant_id, t.amount, t.currency,
+		          t.status, t.description, t.provider, t.provider_tx_id,
+		          t.error_message, t.metadata, t.created_at, t.updated_at`
+
+	rows, err := r.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch pending: %w", err)
+	}
+	defer rows.Close()
+
+	var txns []*domain.Transaction
+	for rows.Next() {
+		tx := &domain.Transaction{}
+		var metadataJSON []byte
+
+		err := rows.Scan(
+			&tx.ID, &tx.IdempotencyKey, &tx.MerchantID,
+			&tx.Amount, &tx.Currency, &tx.Status,
+			&tx.Description, &tx.Provider, &tx.ProviderTxID,
+			&tx.ErrorMessage, &metadataJSON,
+			&tx.CreatedAt, &tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan transaction: %w", err)
+		}
+
+		if metadataJSON != nil {
+			if err := json.Unmarshal(metadataJSON, &tx.Metadata); err != nil {
+				return nil, fmt.Errorf("unmarshal metadata: %w", err)
+			}
+		}
+
+		txns = append(txns, tx)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration: %w", err)
+	}
+
+	return txns, nil
+}
+
+// UpdateStatus обновляет статус и поля провайдера.
+func (r *TransactionRepository) UpdateStatus(
+	ctx context.Context,
+	id string,
+	status domain.Status,
+	providerName *string,
+	providerTxID *string,
+	errorMessage *string,
+) error {
+	query := `
+		UPDATE transactions
+		SET status = $2, provider = $3, provider_tx_id = $4, error_message = $5
+		WHERE id = $1`
+
+	result, err := r.pool.Exec(ctx, query, id, status, providerName, providerTxID, errorMessage)
+	if err != nil {
+		return fmt.Errorf("update status: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}

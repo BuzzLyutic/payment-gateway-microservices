@@ -2,23 +2,36 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 )
 
 // Repository - интерфейс для слоя данных.
 type Repository interface {
 	Create(ctx context.Context, tx *domain.Transaction) error
 	GetByID(ctx context.Context, id string) (*domain.Transaction, error)
+	FetchPending(ctx context.Context, limit int) ([]*domain.Transaction, error)
+	UpdateStatus(ctx context.Context, id string, status domain.Status, provider *string, providerTxID *string, errorMessage *string) error
 }
 
 type TransactionService struct {
 	repo Repository
+	provider provider.Provider
+	maxRetries int
 }
 
-func New(repo Repository) *TransactionService {
-	return &TransactionService{repo: repo}
+
+func New(repo Repository, prov provider.Provider) *TransactionService {
+	return &TransactionService{
+		repo: repo,
+		provider: prov,
+		maxRetries: 3,
+	}
 }
 
 // CreatePayment создаёт новую транзакцию со статусом pending.
@@ -66,6 +79,111 @@ type CreatePaymentRequest struct {
 	Description    string
 	Metadata       map[string]string
 }
+
+
+// ProcessPendingPayments забирает pending-транзакции и обрабатывает каждую.
+// Вызывается воркером по таймеру.
+func (s *TransactionService) ProcessPendingPayments(ctx context.Context, limit int) (int, error) {
+	txns, err := s.repo.FetchPending(ctx, limit)
+	if err != nil {
+		return 0, fmt.Errorf("fetch pending: %w", err)
+	}
+
+	for _, tx := range txns {
+		s.processOne(ctx, tx)
+	}
+
+	return len(txns), nil
+}
+
+// processOne обрабатывает одну транзакцию: вызывает провайдера с retry, обновляет статус.
+func (s *TransactionService) processOne(ctx context.Context, tx *domain.Transaction) {
+	providerName := "mock_provider"
+
+	slog.Info("processing transaction",
+		"id", tx.ID,
+		"amount", tx.Amount,
+		"currency", tx.Currency,
+	)
+
+	result, err := s.callProviderWithRetry(ctx, tx)
+
+	if err != nil {
+		// Все retry исчерпаны - ставим failed
+		errMsg := err.Error()
+		slog.Error("transaction failed after retries",
+			"id", tx.ID,
+			"error", errMsg,
+		)
+
+		if updateErr := s.repo.UpdateStatus(ctx, tx.ID, domain.StatusFailed, &providerName, nil, &errMsg); updateErr != nil {
+			slog.Error("failed to update status to failed", "id", tx.ID, "error", updateErr)
+		}
+		return
+	}
+
+	// Провайдер ответил - captured или declined
+	var errMsg *string
+	if result.ErrorMessage != "" {
+		errMsg = &result.ErrorMessage
+	}
+
+	var txID *string
+	if result.ProviderTxID != "" {
+		txID = &result.ProviderTxID
+	}
+
+	if updateErr := s.repo.UpdateStatus(ctx, tx.ID, result.Status, &providerName, txID, errMsg); updateErr != nil {
+		slog.Error("failed to update status", "id", tx.ID, "status", result.Status, "error", updateErr)
+		return
+	}
+
+	slog.Info("transaction processed",
+		"id", tx.ID,
+		"status", result.Status,
+		"provider_tx_id", result.ProviderTxID,
+	)
+}
+
+// callProviderWithRetry вызывает провайдера с exponential backoff.
+// Retry только при transient-ошибках. Decline не ретраится.
+func (s *TransactionService) callProviderWithRetry(ctx context.Context, tx *domain.Transaction) (*provider.Result, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= s.maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 100ms, 200ms, 400ms
+			backoff := time.Duration(1<<uint(attempt-1)) * 100 * time.Millisecond
+
+			slog.Warn("retrying provider call",
+				"tx_id", tx.ID,
+				"attempt", attempt,
+				"backoff", backoff,
+			)
+
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		result, err := s.provider.ProcessPayment(ctx, tx)
+		if err == nil {
+			return result, nil // success или decline - оба через Result
+		}
+
+		// Только transient-ошибки ретраим
+		if !errors.Is(err, provider.ErrTransient) {
+			return nil, err
+		}
+
+		lastErr = err
+	}
+
+	return nil, fmt.Errorf("max retries (%d) exceeded: %w", s.maxRetries, lastErr)
+}
+
 
 // strPtr - хелпер для конвертации string - *string.
 // Пустая строка - nil (= NULL в БД).

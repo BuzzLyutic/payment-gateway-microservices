@@ -3,12 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 )
 
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	Worker WorkerConfig
 }
 
 type ServerConfig struct {
@@ -26,6 +29,12 @@ type DatabaseConfig struct {
 type RedisConfig struct {
 	Addr string
 }
+
+type WorkerConfig struct {
+	Interval time.Duration
+	BatchSize int
+}
+
 
 func (dc DatabaseConfig) DSN() string {
 	return fmt.Sprintf(
@@ -49,6 +58,10 @@ func Load() *Config {
 		Redis: RedisConfig{
 			Addr: getEnv("REDIS_ADDR", "localhost:6379"),
 		},
+		Worker: WorkerConfig{
+			Interval:  time.Duration(getEnvInt("WORKER_INTERVAL_SEC", 2)) * time.Second,
+			BatchSize: getEnvInt("WORKER_BATCH_SIZE", 10),
+		},
 	}
 }
 
@@ -57,4 +70,16 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return i
 }
