@@ -12,6 +12,7 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/middleware"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
@@ -20,13 +21,19 @@ import (
 )
 
 func main() {
+	// Загрузка конфигурации
+	cfg := config.Load()
+
+	// Логгер
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: cfg.LogLevel,
 	}))
 	slog.SetDefault(logger)
 
-	// Загрузка конфигурации
-	cfg := config.Load()
+	slog.Info("starting transaction service",
+		"port", cfg.Server.Port,
+		"log_level", cfg.LogLevel.String(),
+	)
 
 	// Подключение к БД
 	ctx := context.Background()
@@ -62,9 +69,17 @@ func main() {
 	handler.NewHealthHandler(repo, idempotencyStore).Register(mux)
 	handler.NewPaymentHandler(txService, idempotencyStore).Register(mux)
 
+	// Middleware chain: Recover → RequestID → Logging → Handler
+	var h http.Handler = mux
+	h = middleware.Logging(h)
+	h = middleware.RequestID(h)
+	h = middleware.Recover(h)
+
+
+	// HTTP-сервер
 	srv := &http.Server{
 		Addr: ":" + cfg.Server.Port,
-		Handler: mux,
+		Handler: h,
 		ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout: 60 * time.Second,

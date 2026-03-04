@@ -30,15 +30,7 @@ type PaymentMethodDTO struct {
 	ExpYear    int    `json:"exp_year"`
 }
 
-type CreatePaymentResponse struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	Amount    int64  `json:"amount"`
-	Currency  string `json:"currency"`
-	CreatedAt string `json:"created_at"`
-}
-
-type GetPaymentResponse struct {
+type PaymentResponse struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
 	Amount    int64  `json:"amount"`
@@ -53,16 +45,14 @@ type ErrorResponse struct {
 	Details string `json:"details,omitempty"`
 }
 
-// Хэндлеры
-
 type PaymentHandler struct {
-	svc *service.TransactionService
+	svc        *service.TransactionService
 	idempotent *idempotency.Store
 }
 
 func NewPaymentHandler(svc *service.TransactionService, idempotent *idempotency.Store) *PaymentHandler {
 	return &PaymentHandler{
-		svc: svc,
+		svc:        svc,
 		idempotent: idempotent,
 	}
 }
@@ -74,7 +64,6 @@ func (h *PaymentHandler) Register(mux *http.ServeMux) {
 
 // CreatePayment - POST /api/v1/payments
 func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
-	// Ключ идемпотентности обязателен
 	idempotencyKey := r.Header.Get("X-Idempotency-Key")
 	if idempotencyKey == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
@@ -83,23 +72,31 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем кэш идемпотентности
-	cached, err := h.idempotent.Check(r.Context(), idempotencyKey)
+	// Проверяем идемпотентность
+	existingTxID, err := h.idempotent.Check(r.Context(), idempotencyKey)
 	if err != nil {
 		slog.Error("idempotency check failed", "error", err)
-		// Redis недоступен - не блокируем запрос, продолжаем без идемпотентности
-		// В проде можно вернуть 503, но для MVP пропускаем
+		// Redis недоступен - продолжаем без идемпотентности
 	}
-	if cached != nil {
-		// Повторный запрос - возвращаем закэшированный ответ
-		slog.Info("idempotent request detected", "key", idempotencyKey)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(cached.StatusCode)
-		w.Write(cached.Body)
+
+	if existingTxID != "" {
+		// Повторный запрос - достаём актуальные данные из БД
+		slog.Info("idempotent request detected", "key", idempotencyKey, "tx_id", existingTxID)
+
+		tx, err := h.svc.GetPayment(r.Context(), existingTxID)
+		if err != nil {
+			slog.Error("failed to fetch idempotent transaction", "error", err)
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+				Error: "internal server error",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, toPaymentResponse(tx))
 		return
 	}
 
-	// Декодируем тело
+	// Новый запрос
 	var req CreatePaymentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
@@ -108,7 +105,6 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Валидация
 	if problems := validateCreatePayment(req); len(problems) > 0 {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "validation failed",
@@ -117,7 +113,6 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Создаём платёж
 	tx, err := h.svc.CreatePayment(r.Context(), service.CreatePaymentRequest{
 		IdempotencyKey: idempotencyKey,
 		MerchantID:     req.MerchantID,
@@ -134,28 +129,14 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Формируем ответ
-	resp := CreatePaymentResponse{
-		ID:        tx.ID,
-		Status:    string(tx.Status),
-		Amount:    tx.Amount,
-		Currency:  tx.Currency,
-		CreatedAt: tx.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	// Сохраняем связку key - tx.ID
+	if err := h.idempotent.Save(r.Context(), idempotencyKey, tx.ID); err != nil {
+		slog.Error("failed to save idempotency key", "error", err)
 	}
 
-	// Сериализуем для кэша
-	body, _ := json.Marshal(resp)
-
-	// Сохраняем в Redis — повторный запрос вернёт этот же ответ
-	if err := h.idempotent.Save(r.Context(), idempotencyKey, http.StatusCreated, body); err != nil {
-		slog.Error("failed to cache idempotent response", "error", err)
-		// Не критично, т.к. ответ уже сформирован, просто не закэшировался
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	w.Write(body)
+	writeJSON(w, http.StatusCreated, toPaymentResponse(tx))
 }
+
 
 // GetPayment - GET /api/v1/payments/{id}
 func (h *PaymentHandler) GetPayment(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +163,13 @@ func (h *PaymentHandler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := GetPaymentResponse{
+	writeJSON(w, http.StatusOK, toPaymentResponse(tx))
+}
+
+// Вспомогательные функции
+
+func toPaymentResponse(tx *domain.Transaction) PaymentResponse {
+	resp := PaymentResponse{
 		ID:        tx.ID,
 		Status:    string(tx.Status),
 		Amount:    tx.Amount,
@@ -190,16 +177,11 @@ func (h *PaymentHandler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: tx.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt: tx.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
-
-	// Безопасное разыменование указателя
 	if tx.Provider != nil {
 		resp.Provider = *tx.Provider
 	}
-
-	writeJSON(w, http.StatusOK, resp)
+	return resp
 }
-
-// Вспомогательные функции
 
 func validateCreatePayment(req CreatePaymentRequest) []string {
 	var problems []string

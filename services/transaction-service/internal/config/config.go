@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -12,6 +13,7 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	Worker WorkerConfig
+	LogLevel slog.Level
 }
 
 type ServerConfig struct {
@@ -62,6 +64,22 @@ func Load() *Config {
 			Interval:  time.Duration(getEnvInt("WORKER_INTERVAL_SEC", 2)) * time.Second,
 			BatchSize: getEnvInt("WORKER_BATCH_SIZE", 10),
 		},
+		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
+	}
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
 
