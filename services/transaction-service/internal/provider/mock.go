@@ -28,36 +28,53 @@ type Provider interface {
 
 // MockProvider имитирует внешний платёжный провайдер.
 // 70% - success, 20% - transient error (retriable), 10% - decline (terminal).
-type MockProvider struct{}
+type MockProvider struct {
+	minDelay time.Duration
+	maxDelay time.Duration
+}
 
 func NewMockProvider() *MockProvider {
-	return &MockProvider{}
+	return &MockProvider{
+		minDelay: 100 * time.Millisecond,
+		maxDelay: 500 * time.Millisecond,
+	}
+}
+
+// NewMockProviderWithDelay создаёт мок с настраиваемой задержкой.
+// Для тестов: NewMockProviderWithDelay(0, 0)
+func NewMockProviderWithDelay(min, max time.Duration) *MockProvider {
+	return &MockProvider{
+		minDelay: min,
+		maxDelay: max,
+	}
 }
 
 func (p *MockProvider) ProcessPayment(ctx context.Context, tx *domain.Transaction) (*Result, error) {
-	// Имитация задержки 100–500 мс
-	delay := time.Duration(100+rand.Intn(400)) * time.Millisecond
+	// Задержка - пропускается если min == max == 0
+	if p.maxDelay > 0 {
+		spread := p.maxDelay - p.minDelay
+		delay := p.minDelay + time.Duration(rand.Int63n(int64(spread+1)))
 
-	select {
-	case <-time.After(delay):
-	case <-ctx.Done():
-		return nil, ctx.Err()
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
-	// Случайный исход
 	roll := rand.Intn(100)
 
 	switch {
-	case roll < 70: // 70% - успех
+	case roll < 70:
 		return &Result{
 			ProviderTxID: generateTxID(),
 			Status:       domain.StatusCaptured,
 		}, nil
 
-	case roll < 90: // 20% - transient error (retry)
+	case roll < 90:
 		return nil, fmt.Errorf("%w: provider timeout", ErrTransient)
 
-	default: // 10% - decline (не retry)
+	default:
 		return &Result{
 			Status:       domain.StatusDeclined,
 			ErrorMessage: "insufficient funds",

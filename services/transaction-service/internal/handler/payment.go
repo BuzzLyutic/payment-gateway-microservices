@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -8,9 +9,22 @@ import (
 	"strings"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
 )
+
+// PaymentService — интерфейс бизнес-логики.
+type PaymentService interface {
+	CreatePayment(ctx context.Context, req service.CreatePaymentRequest) (*domain.Transaction, error)
+	GetPayment(ctx context.Context, id string) (*domain.Transaction, error)
+}
+
+// IdempotencyStore — интерфейс хранилища идемпотентности.
+type IdempotencyStore interface {
+	Lock(ctx context.Context, key string) (bool, error)
+	SetTransactionID(ctx context.Context, key string, txID string) error
+	GetTransactionID(ctx context.Context, key string) (string, error)
+	Unlock(ctx context.Context, key string) error
+}
 
 // запрос / ответ
 
@@ -46,11 +60,11 @@ type ErrorResponse struct {
 }
 
 type PaymentHandler struct {
-	svc        *service.TransactionService
-	idempotent *idempotency.Store
+	svc        PaymentService
+	idempotent IdempotencyStore
 }
 
-func NewPaymentHandler(svc *service.TransactionService, idempotent *idempotency.Store) *PaymentHandler {
+func NewPaymentHandler(svc PaymentService, idempotent IdempotencyStore) *PaymentHandler {
 	return &PaymentHandler{
 		svc:        svc,
 		idempotent: idempotent,
@@ -72,18 +86,35 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем идемпотентность
-	existingTxID, err := h.idempotent.Check(r.Context(), idempotencyKey)
+	// Пытаемся захватить ключ
+	locked, err := h.idempotent.Lock(r.Context(), idempotencyKey)
 	if err != nil {
-		slog.Error("idempotency check failed", "error", err)
-		// Redis недоступен - продолжаем без идемпотентности
+		slog.Error("idempotency lock failed", "error", err)
+		// Redis недоступен - продолжаем, UNIQUE constraint в БД спасёт
 	}
 
-	if existingTxID != "" {
-		// Повторный запрос - достаём актуальные данные из БД
-		slog.Info("idempotent request detected", "key", idempotencyKey, "tx_id", existingTxID)
+	if !locked && err == nil {
+		// Ключ уже существует - это повторный запрос
+		txID, err := h.idempotent.GetTransactionID(r.Context(), idempotencyKey)
+		if err != nil {
+			slog.Error("failed to get idempotent tx id", "error", err)
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
+				Error: "internal server error",
+			})
+			return
+		}
 
-		tx, err := h.svc.GetPayment(r.Context(), existingTxID)
+		// Транзакция ещё создаётся другим запросом
+		if txID == "processing" {
+			writeJSON(w, http.StatusConflict, ErrorResponse{
+				Error: "request is being processed",
+			})
+			return
+		}
+
+		// Достаём актуальные данные из БД
+		slog.Info("idempotent request detected", "key", idempotencyKey, "tx_id", txID)
+		tx, err := h.svc.GetPayment(r.Context(), txID)
 		if err != nil {
 			slog.Error("failed to fetch idempotent transaction", "error", err)
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{
@@ -96,9 +127,10 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Новый запрос
+	// Новый запрос - декодируем и валидируем
 	var req CreatePaymentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.idempotent.Unlock(r.Context(), idempotencyKey) // откатываем лок
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error: "invalid request body",
 		})
@@ -106,6 +138,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if problems := validateCreatePayment(req); len(problems) > 0 {
+		h.idempotent.Unlock(r.Context(), idempotencyKey) // откатываем лок
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{
 			Error:   "validation failed",
 			Details: strings.Join(problems, "; "),
@@ -113,6 +146,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Создаем транзакцию
 	tx, err := h.svc.CreatePayment(r.Context(), service.CreatePaymentRequest{
 		IdempotencyKey: idempotencyKey,
 		MerchantID:     req.MerchantID,
@@ -122,6 +156,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		Metadata:       req.Metadata,
 	})
 	if err != nil {
+		h.idempotent.Unlock(r.Context(), idempotencyKey) // откатываем лок
 		slog.Error("create payment failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{
 			Error: "internal server error",
@@ -129,9 +164,10 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Сохраняем связку key - tx.ID
-	if err := h.idempotent.Save(r.Context(), idempotencyKey, tx.ID); err != nil {
-		slog.Error("failed to save idempotency key", "error", err)
+	// Заменяем placeholder на реальный ID
+	if err := h.idempotent.SetTransactionID(r.Context(), idempotencyKey, tx.ID); err != nil {
+		slog.Error("failed to set idempotency tx id", "error", err)
+		// Не критично - транзакция уже создана
 	}
 
 	writeJSON(w, http.StatusCreated, toPaymentResponse(tx))
