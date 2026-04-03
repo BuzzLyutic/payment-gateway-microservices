@@ -36,3 +36,11 @@ func generateID() string {
 	rand.Read(b)
 	return fmt.Sprintf("req_%x", b)
 }
+
+// GetRequestID извлекает request_id из контекста.
+func GetRequestID(ctx context.Context) string {
+	if id, ok := ctx.Value(RequestIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
