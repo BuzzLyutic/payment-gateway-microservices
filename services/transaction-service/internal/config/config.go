@@ -13,7 +13,12 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	Worker WorkerConfig
+	NATS     NATSConfig
 	LogLevel slog.Level
+}
+
+type NATSConfig struct {
+	URL string
 }
 
 type ServerConfig struct {
@@ -63,6 +68,9 @@ func Load() *Config {
 		Worker: WorkerConfig{
 			Interval:  time.Duration(getEnvInt("WORKER_INTERVAL_SEC", 2)) * time.Second,
 			BatchSize: getEnvInt("WORKER_BATCH_SIZE", 10),
+		},
+		NATS: NATSConfig{
+    		URL: getEnv("NATS_URL", "nats://localhost:4222"),
 		},
 		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
 	}

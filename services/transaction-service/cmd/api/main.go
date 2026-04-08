@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,15 +10,21 @@ import (
 	"syscall"
 	"time"
 
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/config"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/consumer"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/middleware"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/publisher"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/worker"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -55,12 +62,22 @@ func main() {
 	}
 	slog.Info("connected to Redis")
 
+	// NATS JetStream
+	js, nc, err := setupJetStream(ctx, cfg.NATS.URL)
+	if err != nil {
+		slog.Error("failed to setup NATS", "error", err)
+		os.Exit(1)
+	}
+	defer nc.Close()
+	slog.Info("connected to NATS")
+
 	idempotencyStore := idempotency.NewStore(rdb)
 	defer idempotencyStore.Close()
 
 	// Provider + Service
 	mockProvider := provider.NewMockProvider()
-	txService := service.New(repo, mockProvider)
+	pub := publisher.New(js)
+	txService := service.New(repo, mockProvider, pub)
 
 	// Роутер
 	mux := http.NewServeMux()
@@ -85,12 +102,21 @@ func main() {
 		IdleTimeout: 60 * time.Second,
 	}
 
-	// Worker - отдельный контекст с cancel для graceful shutdown
-	workerCtx, workerCancel := context.WithCancel(ctx)
-	defer workerCancel()
+	// Контекст для фоновых горутин
+	bgCtx, bgCancel := context.WithCancel(ctx)
+	defer bgCancel()
 
+	// Worker — публикует payment.created
 	w := worker.New(txService, cfg.Worker.Interval, cfg.Worker.BatchSize)
-	go w.Run(workerCtx)
+	go w.Run(bgCtx)
+
+	// Consumer — слушает payment.completed
+	paymentConsumer := consumer.New(repo)
+	go func() {
+		if err := paymentConsumer.Start(bgCtx, js); err != nil {
+			slog.Error("consumer error", "error", err)
+		}
+	}()
 
 	go func() {
 		slog.Info("starting server", "addr", srv.Addr)
@@ -107,8 +133,7 @@ func main() {
 
 	slog.Info("received shutdown signal", "signal", sig.String())
 
-	// 1 - Останавливаем воркер - не берёт новые задачи
-	workerCancel()
+	bgCancel()
 
 	// 2 - Останавливаем HTTP-сервер - дожидаемся текущих запросов
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -120,4 +145,31 @@ func main() {
 	}
 
 	slog.Info("server stopped gracefully")
+}
+
+// setupJetStream подключается к NATS и создаёт Stream PAYMENTS.
+func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *natsgo.Conn, error) {
+	nc, err := natsgo.Connect(natsURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("nats connect: %w", err)
+	}
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		nc.Close()
+		return nil, nil, fmt.Errorf("jetstream new: %w", err)
+	}
+
+	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:      events.StreamName,
+		Subjects:  []string{events.SubjectPaymentCreated, events.SubjectPaymentCompleted},
+		Storage:   jetstream.FileStorage,
+		Retention: jetstream.WorkQueuePolicy,
+	})
+	if err != nil {
+		nc.Close()
+		return nil, nil, fmt.Errorf("create stream: %w", err)
+	}
+
+	return js, nc, nil
 }

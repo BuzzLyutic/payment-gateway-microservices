@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 )
 
@@ -63,13 +64,25 @@ func (m *mockProvider) ProcessPayment(ctx context.Context, tx *domain.Transactio
 	}, nil
 }
 
+// mockPublisher — добавить в service/transaction_test.go
+type mockPublisher struct {
+	publishedEvents []events.PaymentCreated
+	err             error
+}
+
+func (m *mockPublisher) PublishPaymentCreated(_ context.Context, event events.PaymentCreated) error {
+	m.publishedEvents = append(m.publishedEvents, event)
+	return m.err
+}
+
 // --- Tests ---
 
 func TestTransactionService_CreatePayment(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		repo := &mockRepo{}
 		prov := &mockProvider{}
-		svc := New(repo, prov)
+		pub := &mockPublisher{}
+		svc := New(repo, prov, pub)
 
 		tx, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
 			IdempotencyKey: "key-1",
@@ -100,7 +113,8 @@ func TestTransactionService_CreatePayment(t *testing.T) {
 			},
 		}
 		prov := &mockProvider{}
-		svc := New(repo, prov)
+		pub := &mockPublisher{}
+		svc := New(repo, prov, pub)
 
 		_, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
 			MerchantID: "m_123",
@@ -126,7 +140,8 @@ func TestTransactionService_GetPayment(t *testing.T) {
 			},
 		}
 		prov := &mockProvider{}
-		svc := New(repo, prov)
+		pub := &mockPublisher{}
+		svc := New(repo, prov, pub)
 
 		tx, err := svc.GetPayment(context.Background(), "abc-123")
 		if err != nil {
@@ -140,7 +155,8 @@ func TestTransactionService_GetPayment(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		repo := &mockRepo{}
 		prov := &mockProvider{}
-		svc := New(repo, prov)
+		pub := &mockPublisher{}
+		svc := New(repo, prov, pub)
 
 		_, err := svc.GetPayment(context.Background(), "nonexistent")
 		if !errors.Is(err, domain.ErrNotFound) {
@@ -173,7 +189,8 @@ func TestTransactionService_ProcessPending_Captured(t *testing.T) {
 		},
 	}
 
-	svc := New(repo, prov)
+	pub := &mockPublisher{}
+	svc := New(repo, prov, pub)
 
 	count, err := svc.ProcessPendingPayments(context.Background(), 10)
 	if err != nil {
@@ -211,7 +228,8 @@ func TestTransactionService_ProcessPending_ProviderDecline(t *testing.T) {
 		},
 	}
 
-	svc := New(repo, prov)
+	pub := &mockPublisher{}
+	svc := New(repo, prov, pub)
 	svc.ProcessPendingPayments(context.Background(), 10)
 
 	if updatedStatus != domain.StatusDeclined {
@@ -242,7 +260,8 @@ func TestTransactionService_ProcessPending_RetryExhausted(t *testing.T) {
 		},
 	}
 
-	svc := New(repo, prov)
+	pub := &mockPublisher{}
+	svc := New(repo, prov, pub)
 	svc.ProcessPendingPayments(context.Background(), 10)
 
 	if updatedStatus != domain.StatusFailed {

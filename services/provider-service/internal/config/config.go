@@ -10,7 +10,12 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
+	NATS     NATSConfig
 	LogLevel slog.Level
+}
+
+type NATSConfig struct {
+	URL string
 }
 
 type ServerConfig struct {
@@ -43,6 +48,9 @@ func Load() *Config {
 			User:     getEnv("DB_USER", "payment"),
 			Password: getEnv("DB_PASSWORD", "payment_secret"),
 			Name:     getEnv("DB_NAME", "provider_db"),
+		},
+		NATS: NATSConfig{
+    		URL: getEnv("NATS_URL", "nats://localhost:4222"),
 		},
 		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
 	}
