@@ -1,5 +1,8 @@
 version: "3.8"
 services:
+  # ────────────────────────────────────────
+  # Transaction Service
+  # ────────────────────────────────────────
   transaction-service:
     build:
       context: ./services/transaction-service
@@ -21,6 +24,31 @@ services:
         condition: service_healthy
     restart: on-failure
 
+  # ────────────────────────────────────────
+  # Provider Service
+  # ────────────────────────────────────────
+  provider-service:
+    build:
+      context: ./services/provider-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=postgres-provider
+      - DB_PORT=5432
+      - DB_USER=payment
+      - DB_PASSWORD=payment_secret
+      - DB_NAME=provider_db
+      - SERVER_PORT=8081
+      - LOG_LEVEL=debug
+    depends_on:
+      postgres-provider:
+        condition: service_healthy
+    restart: on-failure
+
+  # ────────────────────────────────────────
+  # PostgreSQL — transaction-service
+  # ────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     environment:
@@ -38,6 +66,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # ────────────────────────────────────────
+  # PostgreSQL — provider-service
+  # ────────────────────────────────────────
+  postgres-provider:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: payment_secret
+      POSTGRES_DB: provider_db
+    volumes:
+      - postgres_provider_data:/var/lib/postgresql/data
+      - ./services/provider-service/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment -d provider_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ────────────────────────────────────────
+  # Redis
+  # ────────────────────────────────────────
   redis:
     image: redis:7-alpine
     ports:
@@ -50,3 +101,4 @@ services:
 
 volumes:
   postgres_data:
+  postgres_provider_data:
