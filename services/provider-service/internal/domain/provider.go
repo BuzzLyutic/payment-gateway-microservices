@@ -19,7 +19,7 @@ type Provider struct {
 	Currencies     []string          `json:"currencies"`      // [RUB, USD, EUR]
 	PaymentMethods []string          `json:"payment_methods"` // [card, sbp]
 	CommissionPct  float64           `json:"commission_pct"`
-	Config         map[string]string `json:"config,omitempty"` // credentials, параметры
+	Config 		   map[string]any    `json:"config,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 }

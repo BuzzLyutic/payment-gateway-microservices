@@ -90,6 +90,34 @@ func (r *ProviderRepository) GetByName(ctx context.Context, name string) (*domai
 	return p, nil
 }
 
+// FindAll возвращает всех провайдеров без фильтрации.
+// Используется при старте для инициализации registry.
+func (r *ProviderRepository) FindAll(ctx context.Context) ([]*domain.Provider, error) {
+	query := `
+		SELECT id, name, type, status, currencies, payment_methods,
+		       commission_pct, config, created_at, updated_at
+		FROM providers
+		ORDER BY name
+	`
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query FindAll: %w", err)
+	}
+	defer rows.Close()
+
+	var providers []*domain.Provider
+	for rows.Next() {
+		p, err := scanProvider(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan provider: %w", err)
+		}
+		providers = append(providers, p)
+	}
+
+	return providers, rows.Err()
+}
+
 // scanProvider сканирует строку результата в domain.Provider.
 func scanProvider(rows interface{ Scan(dest ...any) error }) (*domain.Provider, error) {
 	p := &domain.Provider{}

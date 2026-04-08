@@ -20,7 +20,7 @@ type MockAdapter struct {
 
 // NewMockAdapter создаёт адаптер из конфигурации провайдера (поле config в БД).
 // Ожидаемые ключи: success_rate, min_latency_ms, max_latency_ms.
-func NewMockAdapter(cfg map[string]string) *MockAdapter {
+func NewMockAdapter(cfg map[string]any) *MockAdapter {
 	return &MockAdapter{
 		successRate: getIntOrDefault(cfg, "success_rate", 80),
 		minLatency:  time.Duration(getIntOrDefault(cfg, "min_latency_ms", 50)) * time.Millisecond,
@@ -79,14 +79,24 @@ func generateTxID() string {
 	return "mock_tx_" + string(b)
 }
 
-func getIntOrDefault(cfg map[string]string, key string, fallback int) int {
-	v, ok := cfg[key]
-	if !ok {
-		return fallback
-	}
-	i, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return i
+func getIntOrDefault(cfg map[string]any, key string, fallback int) int {
+    v, ok := cfg[key]
+    if !ok {
+        return fallback
+    }
+    // pgx сканирует числа из JSONB как float64
+    switch val := v.(type) {
+    case float64:
+        return int(val)
+    case int:
+        return val
+    case string:
+        i, err := strconv.Atoi(val)
+        if err != nil {
+            return fallback
+        }
+        return i
+    default:
+        return fallback
+    }
 }
