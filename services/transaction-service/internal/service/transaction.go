@@ -48,6 +48,7 @@ func (s *TransactionService) CreatePayment(ctx context.Context, req CreatePaymen
 		MerchantID:     req.MerchantID,
 		Amount:         req.Amount,
 		Currency:       req.Currency,
+		PaymentMethod:  req.PaymentMethod,
 		Status:         domain.StatusPending,
 		Description:    strPtr(req.Description),
 		Metadata:       req.Metadata,
@@ -83,6 +84,7 @@ type CreatePaymentRequest struct {
 	MerchantID     string
 	Amount         int64
 	Currency       string
+	PaymentMethod  string
 	Description    string
 	Metadata       map[string]string
 }
@@ -117,7 +119,7 @@ func (s *TransactionService) processOne(ctx context.Context, tx *domain.Transact
 		MerchantID:    tx.MerchantID,
 		Amount:        tx.Amount,
 		Currency:      tx.Currency,
-		PaymentMethod: "card", // TODO: добавить PaymentMethod в domain.Transaction
+		PaymentMethod: tx.PaymentMethod,
 		CreatedAt:     tx.CreatedAt,
 	}
 

@@ -41,6 +41,7 @@ type Transaction struct {
 	MerchantID     string            `json:"merchant_id"`
 	Amount         int64             `json:"amount"`
 	Currency       string            `json:"currency"`
+	PaymentMethod  string            `json:"payment_method"`
 	Status         Status            `json:"status"`
 	Description    *string           `json:"description,omitempty"`   
 	Provider       *string           `json:"provider,omitempty"`       

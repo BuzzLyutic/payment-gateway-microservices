@@ -59,9 +59,9 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 
 	query := `
 		INSERT INTO transactions (
-			idempotency_key, merchant_id, amount, currency,
+			idempotency_key, merchant_id, amount, currency, payment_method,
 			status, description, metadata
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at, updated_at`
 
 	err = tr.pool.QueryRow(ctx, query,
@@ -69,6 +69,7 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 		tx.MerchantID,
 		tx.Amount,
 		tx.Currency,
+		tx.PaymentMethod,
 		tx.Status,
 		tx.Description,
 		metadataJSON,
@@ -85,7 +86,7 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 // GetByID возвращает транзакцию по ID.
 func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain.Transaction, error) {
 	query := `
-		SELECT id, idempotency_key, merchant_id, amount, currency,
+		SELECT id, idempotency_key, merchant_id, amount, currency, payment_method,
 		       status, description, provider, provider_tx_id,
 		       error_message, metadata, created_at, updated_at
 		FROM transactions
@@ -100,6 +101,7 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain
 		&tx.MerchantID,
 		&tx.Amount,
 		&tx.Currency,
+		&tx.PaymentMethod,
 		&tx.Status,
 		&tx.Description,
 		&tx.Provider,
@@ -145,7 +147,7 @@ func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]
 		FROM pending p
 		WHERE t.id = p.id
 		RETURNING t.id, t.idempotency_key, t.merchant_id, t.amount, t.currency,
-		          t.status, t.description, t.provider, t.provider_tx_id,
+		          t.payment_method, t.status, t.description, t.provider, t.provider_tx_id,
 		          t.error_message, t.metadata, t.created_at, t.updated_at`
 
 	rows, err := r.pool.Query(ctx, query, limit)
@@ -161,7 +163,8 @@ func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]
 
 		err := rows.Scan(
 			&tx.ID, &tx.IdempotencyKey, &tx.MerchantID,
-			&tx.Amount, &tx.Currency, &tx.Status,
+			&tx.Amount, &tx.Currency, &tx.PaymentMethod, 
+			&tx.Status,
 			&tx.Description, &tx.Provider, &tx.ProviderTxID,
 			&tx.ErrorMessage, &metadataJSON,
 			&tx.CreatedAt, &tx.UpdatedAt,

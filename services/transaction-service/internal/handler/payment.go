@@ -152,6 +152,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		MerchantID:     req.MerchantID,
 		Amount:         req.Amount,
 		Currency:       req.Currency,
+		PaymentMethod:  req.PaymentMethod.Type,
 		Description:    req.Description,
 		Metadata:       req.Metadata,
 	})
@@ -230,6 +231,9 @@ func validateCreatePayment(req CreatePaymentRequest) []string {
 	}
 	if req.MerchantID == "" {
 		problems = append(problems, "merchant_id is required")
+	}
+	if req.PaymentMethod.Type == "" {
+		problems = append(problems, "payment_method.type is required")
 	}
 
 	return problems
