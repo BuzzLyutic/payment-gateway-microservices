@@ -16,6 +16,9 @@ type PaymentCreated struct {
 	Amount        int64     `json:"amount"`
 	Currency      string    `json:"currency"`
 	PaymentMethod string    `json:"payment_method"`
+	CardHash      string    `json:"card_hash,omitempty"`
+	CustomerIP    string    `json:"customer_ip,omitempty"`
+	CustomerEmail string    `json:"customer_email,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 

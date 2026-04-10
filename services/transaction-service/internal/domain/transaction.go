@@ -46,7 +46,10 @@ type Transaction struct {
 	Description    *string           `json:"description,omitempty"`   
 	Provider       *string           `json:"provider,omitempty"`       
 	ProviderTxID   *string           `json:"provider_tx_id,omitempty"` 
-	ErrorMessage   *string           `json:"error_message,omitempty"`  
+	ErrorMessage   *string           `json:"error_message,omitempty"`
+	CardHash       *string           `json:"card_hash,omitempty"`
+	CustomerIP     *string           `json:"customer_ip,omitempty"`
+	CustomerEmail  *string           `json:"customer_email,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`

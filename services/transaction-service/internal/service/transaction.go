@@ -51,6 +51,9 @@ func (s *TransactionService) CreatePayment(ctx context.Context, req CreatePaymen
 		PaymentMethod:  req.PaymentMethod,
 		Status:         domain.StatusPending,
 		Description:    strPtr(req.Description),
+		CardHash:       strPtr(req.CardHash),
+		CustomerIP:     strPtr(req.CustomerIP),
+		CustomerEmail:  strPtr(req.CustomerEmail),
 		Metadata:       req.Metadata,
 	}
 
@@ -86,6 +89,9 @@ type CreatePaymentRequest struct {
 	Currency       string
 	PaymentMethod  string
 	Description    string
+	CardHash       string
+	CustomerIP     string
+	CustomerEmail  string
 	Metadata       map[string]string
 }
 
@@ -120,6 +126,9 @@ func (s *TransactionService) processOne(ctx context.Context, tx *domain.Transact
 		Amount:        tx.Amount,
 		Currency:      tx.Currency,
 		PaymentMethod: tx.PaymentMethod,
+		CardHash:      derefStr(tx.CardHash),
+		CustomerIP:    derefStr(tx.CustomerIP),
+		CustomerEmail: derefStr(tx.CustomerEmail),
 		CreatedAt:     tx.CreatedAt,
 	}
 
@@ -181,4 +190,11 @@ func strPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

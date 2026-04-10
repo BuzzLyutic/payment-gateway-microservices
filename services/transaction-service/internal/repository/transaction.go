@@ -60,8 +60,8 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 	query := `
 		INSERT INTO transactions (
 			idempotency_key, merchant_id, amount, currency, payment_method,
-			status, description, metadata
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			status, description, card_hash, customer_ip, customer_email, metadata
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at`
 
 	err = tr.pool.QueryRow(ctx, query,
@@ -72,6 +72,9 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 		tx.PaymentMethod,
 		tx.Status,
 		tx.Description,
+		tx.CardHash,
+		tx.CustomerIP,
+		tx.CustomerEmail,
 		metadataJSON,
 	).Scan(&tx.ID, &tx.CreatedAt, &tx.UpdatedAt)
 
@@ -88,7 +91,8 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain
 	query := `
 		SELECT id, idempotency_key, merchant_id, amount, currency, payment_method,
 		       status, description, provider, provider_tx_id,
-		       error_message, metadata, created_at, updated_at
+		       error_message, card_hash, customer_ip, customer_email,
+       		   metadata, created_at, updated_at
 		FROM transactions
 		WHERE id = $1`
 
@@ -96,20 +100,14 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain
 	var metadataJSON []byte
 
 	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&tx.ID,
-		&tx.IdempotencyKey,
-		&tx.MerchantID,
-		&tx.Amount,
-		&tx.Currency,
-		&tx.PaymentMethod,
+		&tx.ID, &tx.IdempotencyKey, &tx.MerchantID,
+		&tx.Amount, &tx.Currency, &tx.PaymentMethod,
 		&tx.Status,
-		&tx.Description,
-		&tx.Provider,
-		&tx.ProviderTxID,
+		&tx.Description, &tx.Provider, &tx.ProviderTxID,
 		&tx.ErrorMessage,
+		&tx.CardHash, &tx.CustomerIP, &tx.CustomerEmail,
 		&metadataJSON,
-		&tx.CreatedAt,
-		&tx.UpdatedAt,
+		&tx.CreatedAt, &tx.UpdatedAt,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -148,7 +146,8 @@ func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]
 		WHERE t.id = p.id
 		RETURNING t.id, t.idempotency_key, t.merchant_id, t.amount, t.currency,
 		          t.payment_method, t.status, t.description, t.provider, t.provider_tx_id,
-		          t.error_message, t.metadata, t.created_at, t.updated_at`
+		          t.error_message, t.card_hash, t.customer_ip, t.customer_email,
+				  t.metadata, t.created_at, t.updated_at`
 
 	rows, err := r.pool.Query(ctx, query, limit)
 	if err != nil {
@@ -166,7 +165,9 @@ func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]
 			&tx.Amount, &tx.Currency, &tx.PaymentMethod, 
 			&tx.Status,
 			&tx.Description, &tx.Provider, &tx.ProviderTxID,
-			&tx.ErrorMessage, &metadataJSON,
+			&tx.ErrorMessage, 
+			&tx.CardHash, &tx.CustomerIP, &tx.CustomerEmail,
+			&metadataJSON,
 			&tx.CreatedAt, &tx.UpdatedAt,
 		)
 		if err != nil {

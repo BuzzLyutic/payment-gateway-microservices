@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -34,6 +36,7 @@ type CreatePaymentRequest struct {
 	Description   string            `json:"description"`
 	MerchantID    string            `json:"merchant_id"`
 	PaymentMethod PaymentMethodDTO  `json:"payment_method"`
+	Customer      CustomerDTO       `json:"customer"`
 	Metadata      map[string]string `json:"metadata"`
 }
 
@@ -42,6 +45,11 @@ type PaymentMethodDTO struct {
 	CardNumber string `json:"card_number"`
 	ExpMonth   int    `json:"exp_month"`
 	ExpYear    int    `json:"exp_year"`
+}
+
+type CustomerDTO struct {
+	Email string `json:"email"`
+	IP    string `json:"ip"`
 }
 
 type PaymentResponse struct {
@@ -155,6 +163,9 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		PaymentMethod:  req.PaymentMethod.Type,
 		Description:    req.Description,
 		Metadata:       req.Metadata,
+		CardHash:       hashCard(req.PaymentMethod.CardNumber),
+		CustomerIP:     req.Customer.IP,
+		CustomerEmail:  req.Customer.Email,
 	})
 	if err != nil {
 		h.idempotent.Unlock(r.Context(), idempotencyKey) // откатываем лок
@@ -245,4 +256,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		slog.Error("failed to write response", "error", err)
 	}
+}
+
+// hashCard возвращает SHA-256 хэш номера карты.
+// Исходный номер карты нигде не сохраняется.
+func hashCard(cardNumber string) string {
+	if cardNumber == "" {
+		return ""
+	}
+	// Убираем пробелы перед хэшированием
+	clean := strings.ReplaceAll(cardNumber, " ", "")
+	hash := sha256.Sum256([]byte(clean))
+	return fmt.Sprintf("%x", hash)
 }
