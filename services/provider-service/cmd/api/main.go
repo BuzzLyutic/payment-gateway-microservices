@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,10 +10,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/config"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/consumer"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/events"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/middleware"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/publisher"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/service"
 )
@@ -62,7 +69,17 @@ func main() {
 		}
 	}
 
+	// NATS JetStream
+	js, nc, err := setupJetStream(ctx, cfg.NATS.URL)
+	if err != nil {
+		slog.Error("failed to setup NATS", "error", err)
+		os.Exit(1)
+	}
+	defer nc.Close()
+	slog.Info("connected to NATS")
+
 	svc := service.New(repo, registry)
+	pub := publisher.New(js)
 
 	// Роутер
 	mux := http.NewServeMux()
@@ -83,6 +100,19 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Контекст для фоновых горутин
+	bgCtx, bgCancel := context.WithCancel(ctx)
+	defer bgCancel()
+
+	// Consumer — слушает payment.created
+	paymentConsumer := consumer.New(svc, pub)
+	go func() {
+		if err := paymentConsumer.Start(bgCtx, js); err != nil {
+			slog.Error("consumer error", "error", err)
+		}
+	}()
+
+	// HTTP сервер
 	go func() {
 		slog.Info("server started", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -98,6 +128,8 @@ func main() {
 
 	slog.Info("received shutdown signal", "signal", sig.String())
 
+	bgCancel()
+	
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -107,4 +139,31 @@ func main() {
 	}
 
 	slog.Info("server stopped gracefully")
+}
+
+// setupJetStream подключается к NATS и создаёт Stream PAYMENTS.
+func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *nats.Conn, error) {
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("nats connect: %w", err)
+	}
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		nc.Close()
+		return nil, nil, fmt.Errorf("jetstream new: %w", err)
+	}
+
+	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:      events.StreamName,
+		Subjects:  []string{events.SubjectPaymentCreated, events.SubjectPaymentCompleted},
+		Storage:   jetstream.FileStorage,
+		Retention: jetstream.WorkQueuePolicy,
+	})
+	if err != nil {
+		nc.Close()
+		return nil, nil, fmt.Errorf("create stream: %w", err)
+	}
+
+	return js, nc, nil
 }

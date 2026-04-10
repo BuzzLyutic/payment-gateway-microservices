@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 )
 
@@ -22,14 +23,20 @@ type Repository interface {
 type TransactionService struct {
 	repo Repository
 	provider provider.Provider
+	publisher Publisher
 	maxRetries int
 }
 
+// Publisher — интерфейс для публикации событий.
+type Publisher interface {
+	PublishPaymentCreated(ctx context.Context, event events.PaymentCreated) error
+}
 
-func New(repo Repository, prov provider.Provider) *TransactionService {
+func New(repo Repository, prov provider.Provider, pub Publisher) *TransactionService {
 	return &TransactionService{
-		repo: repo,
-		provider: prov,
+		repo:       repo,
+		provider:   prov,
+		publisher:  pub,
 		maxRetries: 3,
 	}
 }
@@ -41,8 +48,12 @@ func (s *TransactionService) CreatePayment(ctx context.Context, req CreatePaymen
 		MerchantID:     req.MerchantID,
 		Amount:         req.Amount,
 		Currency:       req.Currency,
+		PaymentMethod:  req.PaymentMethod,
 		Status:         domain.StatusPending,
 		Description:    strPtr(req.Description),
+		CardHash:       strPtr(req.CardHash),
+		CustomerIP:     strPtr(req.CustomerIP),
+		CustomerEmail:  strPtr(req.CustomerEmail),
 		Metadata:       req.Metadata,
 	}
 
@@ -76,7 +87,11 @@ type CreatePaymentRequest struct {
 	MerchantID     string
 	Amount         int64
 	Currency       string
+	PaymentMethod  string
 	Description    string
+	CardHash       string
+	CustomerIP     string
+	CustomerEmail  string
 	Metadata       map[string]string
 }
 
@@ -96,53 +111,36 @@ func (s *TransactionService) ProcessPendingPayments(ctx context.Context, limit i
 	return len(txns), nil
 }
 
-// processOne обрабатывает одну транзакцию: вызывает провайдера с retry, обновляет статус.
+// processOne публикует событие payment.created для каждой pending-транзакции.
+// Обработку результата берёт на себя consumer (payment.completed).
 func (s *TransactionService) processOne(ctx context.Context, tx *domain.Transaction) {
-	providerName := "mock_provider"
-
-	slog.Info("processing transaction",
+	slog.Info("publishing payment.created",
 		"id", tx.ID,
 		"amount", tx.Amount,
 		"currency", tx.Currency,
 	)
 
-	result, err := s.callProviderWithRetry(ctx, tx)
+	event := events.PaymentCreated{
+		TransactionID: tx.ID,
+		MerchantID:    tx.MerchantID,
+		Amount:        tx.Amount,
+		Currency:      tx.Currency,
+		PaymentMethod: tx.PaymentMethod,
+		CardHash:      derefStr(tx.CardHash),
+		CustomerIP:    derefStr(tx.CustomerIP),
+		CustomerEmail: derefStr(tx.CustomerEmail),
+		CreatedAt:     tx.CreatedAt,
+	}
 
-	if err != nil {
-		// Все retry исчерпаны - ставим failed
-		errMsg := err.Error()
-		slog.Error("transaction failed after retries",
+	if err := s.publisher.PublishPaymentCreated(ctx, event); err != nil {
+		slog.Error("failed to publish payment.created",
 			"id", tx.ID,
-			"error", errMsg,
+			"error", err,
 		)
-
-		if updateErr := s.repo.UpdateStatus(ctx, tx.ID, domain.StatusFailed, &providerName, nil, &errMsg); updateErr != nil {
-			slog.Error("failed to update status to failed", "id", tx.ID, "error", updateErr)
-		}
 		return
 	}
 
-	// Провайдер ответил - captured или declined
-	var errMsg *string
-	if result.ErrorMessage != "" {
-		errMsg = &result.ErrorMessage
-	}
-
-	var txID *string
-	if result.ProviderTxID != "" {
-		txID = &result.ProviderTxID
-	}
-
-	if updateErr := s.repo.UpdateStatus(ctx, tx.ID, result.Status, &providerName, txID, errMsg); updateErr != nil {
-		slog.Error("failed to update status", "id", tx.ID, "status", result.Status, "error", updateErr)
-		return
-	}
-
-	slog.Info("transaction processed",
-		"id", tx.ID,
-		"status", result.Status,
-		"provider_tx_id", result.ProviderTxID,
-	)
+	slog.Info("payment.created published", "id", tx.ID)
 }
 
 // callProviderWithRetry вызывает провайдера с exponential backoff.
@@ -192,4 +190,11 @@ func strPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
