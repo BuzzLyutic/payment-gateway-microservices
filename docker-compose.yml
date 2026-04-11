@@ -27,6 +27,32 @@ services:
         condition: service_healthy
     restart: on-failure
 
+    # ── Risk Service ──────────────────────────────────────────────────────────
+  risk-service:
+    build:
+      context: ./services/risk-service
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - REDIS_URL=redis://redis:6379
+      - NATS_URL=nats://nats:4222
+      - RULES_PATH=/app/rules/default.json
+      - LOG_LEVEL=debug
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
   # ────────────────────────────────────────
   # Provider Service
   # ────────────────────────────────────────
@@ -49,6 +75,8 @@ services:
       postgres-provider:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      risk-service:
         condition: service_healthy
     restart: on-failure
 
