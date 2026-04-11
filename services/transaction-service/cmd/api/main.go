@@ -161,10 +161,16 @@ func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *
 	}
 
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:      events.StreamName,
-		Subjects:  []string{events.SubjectPaymentCreated, events.SubjectPaymentCompleted},
+		Name: events.StreamName,
+		Subjects: []string{
+			events.SubjectPaymentCreated,
+			events.SubjectPaymentCompleted,
+			events.SubjectPaymentRiskApproved,
+			events.SubjectPaymentRiskBlocked,
+		},
 		Storage:   jetstream.FileStorage,
 		Retention: jetstream.WorkQueuePolicy,
+		MaxAge:    72 * time.Hour,
 	})
 	if err != nil {
 		nc.Close()

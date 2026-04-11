@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
@@ -142,8 +142,8 @@ func main() {
 }
 
 // setupJetStream подключается к NATS и создаёт Stream PAYMENTS.
-func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *nats.Conn, error) {
-	nc, err := nats.Connect(natsURL)
+func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *natsgo.Conn, error) {
+	nc, err := natsgo.Connect(natsURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("nats connect: %w", err)
 	}
@@ -155,10 +155,16 @@ func setupJetStream(ctx context.Context, natsURL string) (jetstream.JetStream, *
 	}
 
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:      events.StreamName,
-		Subjects:  []string{events.SubjectPaymentCreated, events.SubjectPaymentCompleted},
+		Name: events.StreamName,
+		Subjects: []string{
+			events.SubjectPaymentCreated,
+			events.SubjectPaymentCompleted,
+			events.SubjectPaymentRiskApproved,
+			events.SubjectPaymentRiskBlocked,
+		},
 		Storage:   jetstream.FileStorage,
 		Retention: jetstream.WorkQueuePolicy,
+		MaxAge:    72 * time.Hour,
 	})
 	if err != nil {
 		nc.Close()
