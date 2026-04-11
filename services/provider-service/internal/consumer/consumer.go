@@ -36,7 +36,7 @@ func New(svc PaymentProcessor, pub EventPublisher) *Consumer {
 func (c *Consumer) Start(ctx context.Context, js jetstream.JetStream) error {
 	cons, err := js.CreateOrUpdateConsumer(ctx, events.StreamName, jetstream.ConsumerConfig{
 		Name:          "provider-processor",
-		FilterSubject: events.SubjectPaymentCreated,
+		FilterSubject: events.SubjectPaymentRiskApproved,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
@@ -56,17 +56,17 @@ func (c *Consumer) Start(ctx context.Context, js jetstream.JetStream) error {
 }
 
 func (c *Consumer) handle(msg jetstream.Msg) {
-	var event events.PaymentCreated
+	var event events.PaymentRiskApproved
 	if err := json.Unmarshal(msg.Data(), &event); err != nil {
-		slog.Error("failed to unmarshal payment.created", "error", err)
-		msg.Nak()
+		slog.Error("failed to unmarshal payment.risk_approved", "error", err)
+		msg.Term()
 		return
 	}
 
-	slog.Info("received payment.created",
+	slog.Info("received payment.risk_approved",
 		"transaction_id", event.TransactionID,
-		"currency", event.Currency,
 		"amount", event.Amount,
+		"risk_score", event.RiskScore,
 	)
 
 	req := &domain.ProcessRequest{

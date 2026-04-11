@@ -15,13 +15,14 @@ const (
 	StatusFailed     Status = "failed"
 	StatusDeclined   Status = "declined"
 	StatusRefunded   Status = "refunded"
+	StatusBlocked    Status = "blocked"
 )
 
 // validTransitions - допустимые переходы состояний (state machine).
 // Ключ - текущий статус, значение - множество допустимых целевых статусов.
 var validTransitions = map[Status]map[Status]bool{
 	StatusPending:    {StatusProcessing: true},
-	StatusProcessing: {StatusCaptured: true, StatusFailed: true, StatusDeclined: true},
+	StatusProcessing: {StatusCaptured: true, StatusFailed: true, StatusDeclined: true, StatusBlocked: true},
 	StatusCaptured:   {StatusRefunded: true},
 }
 

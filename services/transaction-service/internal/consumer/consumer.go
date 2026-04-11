@@ -30,7 +30,10 @@ func New(repo StatusUpdater) *Consumer {
 func (c *Consumer) Start(ctx context.Context, js jetstream.JetStream) error {
 	cons, err := js.CreateOrUpdateConsumer(ctx, events.StreamName, jetstream.ConsumerConfig{
 		Name:          "transaction-updater",
-		FilterSubject: events.SubjectPaymentCompleted,
+		FilterSubjects: []string{
+			events.SubjectPaymentCompleted,
+			events.SubjectPaymentRiskBlocked,
+		},
 		AckPolicy:     jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
@@ -50,12 +53,22 @@ func (c *Consumer) Start(ctx context.Context, js jetstream.JetStream) error {
 }
 
 func (c *Consumer) handle(msg jetstream.Msg) {
+	switch msg.Subject() {
+	case events.SubjectPaymentCompleted:
+		c.handleCompleted(msg)
+	case events.SubjectPaymentRiskBlocked:
+		c.handleRiskBlocked(msg)
+	default:
+		slog.Warn("unexpected subject", "subject", msg.Subject())
+		msg.Ack()
+	}
+}
+
+func (c *Consumer) handleCompleted(msg jetstream.Msg) {
 	var event events.PaymentCompleted
 	if err := json.Unmarshal(msg.Data(), &event); err != nil {
-		slog.Error("failed to unmarshal payment.completed",
-			"error", err,
-		)
-		msg.Nak()
+		slog.Error("failed to unmarshal payment.completed", "error", err)
+		msg.Term()
 		return
 	}
 
@@ -65,7 +78,7 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 		"provider", event.Provider,
 	)
 
-	status := mapStatus(event.Status)
+	status := mapCompletedStatus(event.Status)
 
 	var providerTxID *string
 	if event.ProviderTxID != "" {
@@ -92,8 +105,34 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 	msg.Ack()
 }
 
-// mapStatus конвертирует строковый статус из события в доменный.
-func mapStatus(s string) domain.Status {
+func (c *Consumer) handleRiskBlocked(msg jetstream.Msg) {
+	var event events.PaymentRiskBlocked
+	if err := json.Unmarshal(msg.Data(), &event); err != nil {
+		slog.Error("failed to unmarshal payment.risk_blocked", "error", err)
+		msg.Term()
+		return
+	}
+
+	slog.Info("received payment.risk_blocked",
+		"transaction_id", event.TransactionID,
+		"score", event.RiskScore,
+		"triggered_rules", event.TriggeredRules,
+	)
+
+	ctx := context.Background()
+	if err := c.repo.UpdateStatus(ctx, event.TransactionID, domain.StatusBlocked, nil, nil, nil); err != nil {
+		slog.Error("failed to update transaction status to blocked",
+			"transaction_id", event.TransactionID,
+			"error", err,
+		)
+		msg.Nak()
+		return
+	}
+
+	msg.Ack()
+}
+
+func mapCompletedStatus(s string) domain.Status {
 	switch s {
 	case "captured":
 		return domain.StatusCaptured
