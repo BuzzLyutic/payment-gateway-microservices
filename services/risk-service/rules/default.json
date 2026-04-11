@@ -1,0 +1,58 @@
+{
+  "rules": [
+    {
+      "name": "high_amount",
+      "description": "Сумма транзакции превышает 100 000 RUB (10 000 000 минимальных единиц)",
+      "type": "simple",
+      "field": "amount",
+      "operator": "gt",
+      "value": 10000000,
+      "score": 20
+    },
+    {
+      "name": "very_high_amount",
+      "description": "Сумма транзакции превышает 500 000 RUB (50 000 000 минимальных единиц)",
+      "type": "simple",
+      "field": "amount",
+      "operator": "gt",
+      "value": 50000000,
+      "score": 35
+    },
+    {
+      "name": "night_time",
+      "description": "Транзакция создана в ночное время (1:00–5:00 UTC)",
+      "type": "simple",
+      "field": "hour",
+      "operator": "between",
+      "value": [1, 5],
+      "score": 10
+    },
+    {
+      "name": "velocity_merchant_10min",
+      "description": "Более 5 транзакций от одного мерчанта за 10 минут",
+      "type": "velocity",
+      "key_field": "merchant_id",
+      "window": "10m",
+      "threshold": 5,
+      "score": 25
+    },
+    {
+      "name": "velocity_card_1h",
+      "description": "Более 3 транзакций с одной карты за 1 час",
+      "type": "velocity",
+      "key_field": "card_hash",
+      "window": "1h",
+      "threshold": 3,
+      "score": 30
+    },
+    {
+      "name": "velocity_ip_10min",
+      "description": "Более 10 транзакций с одного IP за 10 минут",
+      "type": "velocity",
+      "key_field": "customer_ip",
+      "window": "10m",
+      "threshold": 10,
+      "score": 20
+    }
+  ]
+}
