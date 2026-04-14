@@ -63,6 +63,9 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+    defer cancel()
+
 	slog.Info("received payment.risk_approved",
 		"transaction_id", event.TransactionID,
 		"amount", event.Amount,
@@ -77,7 +80,6 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 		PaymentMethod: event.PaymentMethod,
 	}
 
-	ctx := context.Background()
 	result, err := c.svc.ProcessPayment(ctx, req)
 	if err != nil {
 		slog.Error("failed to process payment",
