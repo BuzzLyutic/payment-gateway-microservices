@@ -2,14 +2,11 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 )
 
 // Repository - интерфейс для слоя данных.
@@ -22,9 +19,7 @@ type Repository interface {
 
 type TransactionService struct {
 	repo Repository
-	provider provider.Provider
 	publisher Publisher
-	maxRetries int
 }
 
 // Publisher — интерфейс для публикации событий.
@@ -32,12 +27,10 @@ type Publisher interface {
 	PublishPaymentCreated(ctx context.Context, event events.PaymentCreated) error
 }
 
-func New(repo Repository, prov provider.Provider, pub Publisher) *TransactionService {
+func New(repo Repository, pub Publisher) *TransactionService {
 	return &TransactionService{
 		repo:       repo,
-		provider:   prov,
 		publisher:  pub,
-		maxRetries: 3,
 	}
 }
 
@@ -142,46 +135,6 @@ func (s *TransactionService) processOne(ctx context.Context, tx *domain.Transact
 
 	slog.Info("payment.created published", "id", tx.ID)
 }
-
-// callProviderWithRetry вызывает провайдера с exponential backoff.
-// Retry только при transient-ошибках. Decline не ретраится.
-func (s *TransactionService) callProviderWithRetry(ctx context.Context, tx *domain.Transaction) (*provider.Result, error) {
-	var lastErr error
-
-	for attempt := 0; attempt <= s.maxRetries; attempt++ {
-		if attempt > 0 {
-			// Exponential backoff: 100ms, 200ms, 400ms
-			backoff := time.Duration(1<<uint(attempt-1)) * 100 * time.Millisecond
-
-			slog.Warn("retrying provider call",
-				"tx_id", tx.ID,
-				"attempt", attempt,
-				"backoff", backoff,
-			)
-
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-
-		result, err := s.provider.ProcessPayment(ctx, tx)
-		if err == nil {
-			return result, nil // success или decline - оба через Result
-		}
-
-		// Только transient-ошибки ретраим
-		if !errors.Is(err, provider.ErrTransient) {
-			return nil, err
-		}
-
-		lastErr = err
-	}
-
-	return nil, fmt.Errorf("max retries (%d) exceeded: %w", s.maxRetries, lastErr)
-}
-
 
 // strPtr - хелпер для конвертации string - *string.
 // Пустая строка - nil (= NULL в БД).
