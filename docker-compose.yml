@@ -1,15 +1,43 @@
 version: "3.8"
+
 services:
-  # ────────────────────────────────────────
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080" # единственный порт снаружи
+    environment:
+      - PORT=8080
+      - REDIS_URL=redis://redis:6379
+      - TRANSACTION_SERVICE_URL=http://transaction-service:8080
+      - DEFAULT_RATE_LIMIT=100
+      - LOG_LEVEL=debug
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-seed:
+        condition: service_completed_successfully
+      transaction-service:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
   # Transaction Service
-  # ────────────────────────────────────────
   transaction-service:
     build:
       context: ./services/transaction-service
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    # ports не указываем — снаружи недоступен
     environment:
+      - SERVER_PORT=8080
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USER=payment
@@ -26,14 +54,18 @@ services:
       nats:
         condition: service_healthy
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
-    # ── Risk Service ──────────────────────────────────────────────────────────
+  # Risk Service
   risk-service:
     build:
       context: ./services/risk-service
       dockerfile: Dockerfile
-    ports:
-      - "8083:8083"
     environment:
       - PORT=8083
       - REDIS_URL=redis://redis:6379
@@ -53,22 +85,18 @@ services:
       retries: 3
       start_period: 10s
 
-  # ────────────────────────────────────────
   # Provider Service
-  # ────────────────────────────────────────
   provider-service:
     build:
       context: ./services/provider-service
       dockerfile: Dockerfile
-    ports:
-      - "8081:8081"
     environment:
       - DB_HOST=postgres-provider
       - DB_PORT=5432
       - DB_USER=payment
       - DB_PASSWORD=payment_secret
       - DB_NAME=provider_db
-      - SERVER_PORT=8081
+      - SERVER_PORT=8082
       - NATS_URL=nats://nats:4222
       - LOG_LEVEL=debug
     depends_on:
@@ -80,9 +108,29 @@ services:
         condition: service_healthy
     restart: on-failure
 
-  # ────────────────────────────────────────
+  # Redis Seed
+  # Init-контейнер: создаёт тестовые API-ключи при старте.
+  # restart: no — запускается один раз и завершается.
+  # api-gateway ждёт его через condition: service_completed_successfully.
+  redis-seed:
+    image: redis:7-alpine
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - sh
+      - -c
+      - |
+        KEY1=$$(echo -n "test_key_merchant_1" | sha256sum | cut -d" " -f1)
+        KEY2=$$(echo -n "test_key_merchant_2" | sha256sum | cut -d" " -f1)
+
+        redis-cli -h redis HSET apikeys:$$KEY1 merchant_id merchant_001 name "Test_Merchant_1" rate_limit 100 active true
+        redis-cli -h redis HSET apikeys:$$KEY2 merchant_id merchant_002 name "Test_Merchant_2" rate_limit 50 active true
+
+        echo "Redis seed completed"
+
   # PostgreSQL — transaction-service
-  # ────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     environment:
@@ -92,17 +140,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./services/transaction-service/migrations:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U payment -d payment_gateway"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ────────────────────────────────────────
   # PostgreSQL — provider-service
-  # ────────────────────────────────────────
   postgres-provider:
     image: postgres:16-alpine
     environment:
@@ -112,36 +156,28 @@ services:
     volumes:
       - postgres_provider_data:/var/lib/postgresql/data
       - ./services/provider-service/migrations:/docker-entrypoint-initdb.d
-    ports:
-      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U payment -d provider_db"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ────────────────────────────────────────
   # Redis
-  # ────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ────────────────────────────────────────
   # NATS JetStream
-  # ────────────────────────────────────────
   nats:
     image: nats:2.10-alpine
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"   # клиентский порт
-      - "8222:8222"   # HTTP monitoring
+      - "4222:4222"
+      - "8222:8222"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
       interval: 5s
