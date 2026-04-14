@@ -4,19 +4,18 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 )
 
-// --- Mock Repository ---
-
+// mockRepo и mockPublisher — без mockProvider
 type mockRepo struct {
-	createFn      func(ctx context.Context, tx *domain.Transaction) error
-	getByIDFn     func(ctx context.Context, id string) (*domain.Transaction, error)
-	fetchPendFn   func(ctx context.Context, limit int) ([]*domain.Transaction, error)
-	updateStatFn  func(ctx context.Context, id string, status domain.Status, prov, txID, errMsg *string) error
+	createFn     func(ctx context.Context, tx *domain.Transaction) error
+	getByIDFn    func(ctx context.Context, id string) (*domain.Transaction, error)
+	fetchPendFn  func(ctx context.Context, limit int) ([]*domain.Transaction, error)
+	updateStatFn func(ctx context.Context, id string, status domain.Status, prov, txID, errMsg *string) error
 }
 
 func (m *mockRepo) Create(ctx context.Context, tx *domain.Transaction) error {
@@ -48,23 +47,6 @@ func (m *mockRepo) UpdateStatus(ctx context.Context, id string, status domain.St
 	return nil
 }
 
-// --- Mock Provider ---
-
-type mockProvider struct {
-	processFn func(ctx context.Context, tx *domain.Transaction) (*provider.Result, error)
-}
-
-func (m *mockProvider) ProcessPayment(ctx context.Context, tx *domain.Transaction) (*provider.Result, error) {
-	if m.processFn != nil {
-		return m.processFn(ctx, tx)
-	}
-	return &provider.Result{
-		ProviderTxID: "mock_tx_abc",
-		Status:       domain.StatusCaptured,
-	}, nil
-}
-
-// mockPublisher — добавить в service/transaction_test.go
 type mockPublisher struct {
 	publishedEvents []events.PaymentCreated
 	err             error
@@ -77,120 +59,101 @@ func (m *mockPublisher) PublishPaymentCreated(_ context.Context, event events.Pa
 
 // --- Tests ---
 
-func TestTransactionService_CreatePayment(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		repo := &mockRepo{}
-		prov := &mockProvider{}
-		pub := &mockPublisher{}
-		svc := New(repo, prov, pub)
+func TestTransactionService_CreatePayment_Success(t *testing.T) {
+	repo := &mockRepo{}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
 
-		tx, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
-			IdempotencyKey: "key-1",
-			MerchantID:     "m_123",
-			Amount:         10000,
-			Currency:       "RUB",
-			Description:    "test payment",
-		})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if tx.ID != "test-id-123" {
-			t.Errorf("id = %s, want test-id-123", tx.ID)
-		}
-		if tx.Status != domain.StatusPending {
-			t.Errorf("status = %s, want pending", tx.Status)
-		}
-		if tx.Amount != 10000 {
-			t.Errorf("amount = %d, want 10000", tx.Amount)
-		}
+	tx, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
+		IdempotencyKey: "key-1",
+		MerchantID:     "m_123",
+		Amount:         10000,
+		Currency:       "RUB",
 	})
 
-	t.Run("repository error", func(t *testing.T) {
-		repo := &mockRepo{
-			createFn: func(_ context.Context, _ *domain.Transaction) error {
-				return errors.New("db connection lost")
-			},
-		}
-		prov := &mockProvider{}
-		pub := &mockPublisher{}
-		svc := New(repo, prov, pub)
-
-		_, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
-			MerchantID: "m_123",
-			Amount:     10000,
-			Currency:   "RUB",
-		})
-
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tx.ID != "test-id-123" {
+		t.Errorf("id = %s, want test-id-123", tx.ID)
+	}
+	if tx.Status != domain.StatusPending {
+		t.Errorf("status = %s, want pending", tx.Status)
+	}
 }
 
-func TestTransactionService_GetPayment(t *testing.T) {
-	t.Run("found", func(t *testing.T) {
-		repo := &mockRepo{
-			getByIDFn: func(_ context.Context, id string) (*domain.Transaction, error) {
-				return &domain.Transaction{
-					ID:     id,
-					Status: domain.StatusCaptured,
-					Amount: 5000,
-				}, nil
-			},
-		}
-		prov := &mockProvider{}
-		pub := &mockPublisher{}
-		svc := New(repo, prov, pub)
+func TestTransactionService_CreatePayment_RepoError(t *testing.T) {
+	repo := &mockRepo{
+		createFn: func(_ context.Context, _ *domain.Transaction) error {
+			return errors.New("db connection lost")
+		},
+	}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
 
-		tx, err := svc.GetPayment(context.Background(), "abc-123")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if tx.Status != domain.StatusCaptured {
-			t.Errorf("status = %s, want captured", tx.Status)
-		}
+	_, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
+		MerchantID: "m_123",
+		Amount:     10000,
+		Currency:   "RUB",
 	})
 
-	t.Run("not found", func(t *testing.T) {
-		repo := &mockRepo{}
-		prov := &mockProvider{}
-		pub := &mockPublisher{}
-		svc := New(repo, prov, pub)
-
-		_, err := svc.GetPayment(context.Background(), "nonexistent")
-		if !errors.Is(err, domain.ErrNotFound) {
-			t.Errorf("error = %v, want ErrNotFound", err)
-		}
-	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
 }
 
-func TestTransactionService_ProcessPending_Captured(t *testing.T) {
-	var updatedStatus domain.Status
+func TestTransactionService_GetPayment_Found(t *testing.T) {
+	repo := &mockRepo{
+		getByIDFn: func(_ context.Context, id string) (*domain.Transaction, error) {
+			return &domain.Transaction{
+				ID:     id,
+				Status: domain.StatusCaptured,
+				Amount: 5000,
+			}, nil
+		},
+	}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
 
+	tx, err := svc.GetPayment(context.Background(), "abc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tx.Status != domain.StatusCaptured {
+		t.Errorf("status = %s, want captured", tx.Status)
+	}
+}
+
+func TestTransactionService_GetPayment_NotFound(t *testing.T) {
+	repo := &mockRepo{}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	_, err := svc.GetPayment(context.Background(), "nonexistent")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestTransactionService_ProcessPending_PublishesEvent(t *testing.T) {
 	repo := &mockRepo{
 		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
 			return []*domain.Transaction{
-				{ID: "tx-1", Amount: 10000, Status: domain.StatusProcessing},
-			}, nil
-		},
-		updateStatFn: func(_ context.Context, _ string, status domain.Status, _, _, _ *string) error {
-			updatedStatus = status
-			return nil
-		},
-	}
-
-	prov := &mockProvider{
-		processFn: func(_ context.Context, _ *domain.Transaction) (*provider.Result, error) {
-			return &provider.Result{
-				ProviderTxID: "prov_tx_1",
-				Status:       domain.StatusCaptured,
+				{
+					ID:            "tx-1",
+					Amount:        10000,
+					Currency:      "RUB",
+					MerchantID:    "merchant-001",
+					PaymentMethod: "card",
+					Status:        domain.StatusPending,
+					CreatedAt:     time.Now(),
+				},
 			}, nil
 		},
 	}
 
 	pub := &mockPublisher{}
-	svc := New(repo, prov, pub)
+	svc := New(repo, pub)
 
 	count, err := svc.ProcessPendingPayments(context.Background(), 10)
 	if err != nil {
@@ -199,76 +162,35 @@ func TestTransactionService_ProcessPending_Captured(t *testing.T) {
 	if count != 1 {
 		t.Errorf("count = %d, want 1", count)
 	}
-	if updatedStatus != domain.StatusCaptured {
-		t.Errorf("status = %s, want captured", updatedStatus)
+	if len(pub.publishedEvents) != 1 {
+		t.Fatalf("expected 1 published event, got %d", len(pub.publishedEvents))
+	}
+	if pub.publishedEvents[0].TransactionID != "tx-1" {
+		t.Errorf("expected transaction_id tx-1, got %s",
+			pub.publishedEvents[0].TransactionID)
 	}
 }
 
-func TestTransactionService_ProcessPending_ProviderDecline(t *testing.T) {
-	var updatedStatus domain.Status
-
+func TestTransactionService_ProcessPending_PublishError_ContinuesBatch(t *testing.T) {
+	// Ошибка публикации одной транзакции не должна останавливать batch.
 	repo := &mockRepo{
 		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
 			return []*domain.Transaction{
-				{ID: "tx-2", Amount: 5000, Status: domain.StatusProcessing},
-			}, nil
-		},
-		updateStatFn: func(_ context.Context, _ string, status domain.Status, _, _, _ *string) error {
-			updatedStatus = status
-			return nil
-		},
-	}
-
-	prov := &mockProvider{
-		processFn: func(_ context.Context, _ *domain.Transaction) (*provider.Result, error) {
-			return &provider.Result{
-				Status:       domain.StatusDeclined,
-				ErrorMessage: "insufficient funds",
+				{ID: "tx-1", Amount: 10000, Status: domain.StatusPending, CreatedAt: time.Now()},
+				{ID: "tx-2", Amount: 20000, Status: domain.StatusPending, CreatedAt: time.Now()},
 			}, nil
 		},
 	}
 
-	pub := &mockPublisher{}
-	svc := New(repo, prov, pub)
-	svc.ProcessPendingPayments(context.Background(), 10)
+	pub := &mockPublisher{err: errors.New("nats unavailable")}
+	svc := New(repo, pub)
 
-	if updatedStatus != domain.StatusDeclined {
-		t.Errorf("status = %s, want declined", updatedStatus)
+	count, err := svc.ProcessPendingPayments(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-func TestTransactionService_ProcessPending_RetryExhausted(t *testing.T) {
-	var updatedStatus domain.Status
-	callCount := 0
-
-	repo := &mockRepo{
-		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
-			return []*domain.Transaction{
-				{ID: "tx-3", Amount: 3000, Status: domain.StatusProcessing},
-			}, nil
-		},
-		updateStatFn: func(_ context.Context, _ string, status domain.Status, _, _, _ *string) error {
-			updatedStatus = status
-			return nil
-		},
-	}
-
-	prov := &mockProvider{
-		processFn: func(_ context.Context, _ *domain.Transaction) (*provider.Result, error) {
-			callCount++
-			return nil, provider.ErrTransient
-		},
-	}
-
-	pub := &mockPublisher{}
-	svc := New(repo, prov, pub)
-	svc.ProcessPendingPayments(context.Background(), 10)
-
-	if updatedStatus != domain.StatusFailed {
-		t.Errorf("status = %s, want failed", updatedStatus)
-	}
-	// 1 initial + 3 retries = 4
-	if callCount != 4 {
-		t.Errorf("provider called %d times, want 4", callCount)
+	// Обе транзакции обработаны (пусть и с ошибкой публикации)
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
 	}
 }

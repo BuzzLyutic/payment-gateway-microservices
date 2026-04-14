@@ -20,7 +20,6 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/handler"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/idempotency"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/middleware"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/provider"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/publisher"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
@@ -74,10 +73,9 @@ func main() {
 	idempotencyStore := idempotency.NewStore(rdb)
 	defer idempotencyStore.Close()
 
-	// Provider + Service
-	mockProvider := provider.NewMockProvider()
+	// Service
 	pub := publisher.New(js)
-	txService := service.New(repo, mockProvider, pub)
+	txService := service.New(repo, pub)
 
 	// Роутер
 	mux := http.NewServeMux()

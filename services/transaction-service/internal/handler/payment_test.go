@@ -103,7 +103,12 @@ func TestCreatePayment_Success(t *testing.T) {
 	idem := &mockIdempotency{}
 	_, mux := newTestHandler(svc, idem)
 
-	body := `{"amount":10000,"currency":"RUB","merchant_id":"m_123"}`
+	body := `{
+		"amount": 10000,
+		"currency": "RUB",
+		"merchant_id": "m_123",
+		"payment_method": {"type": "card"}
+	}`
 	req := makeCreateRequest(body, "key-001")
 	rr := httptest.NewRecorder()
 
@@ -145,11 +150,30 @@ func TestCreatePayment_ValidationFailed(t *testing.T) {
 		name string
 		body string
 	}{
-		{"missing amount", `{"currency":"RUB","merchant_id":"m_123"}`},
-		{"negative amount", `{"amount":-100,"currency":"RUB","merchant_id":"m_123"}`},
-		{"missing currency", `{"amount":10000,"merchant_id":"m_123"}`},
-		{"missing merchant_id", `{"amount":10000,"currency":"RUB"}`},
-		{"all empty", `{}`},
+		{
+			"missing amount",
+			`{"currency":"RUB","merchant_id":"m_123","payment_method":{"type":"card"}}`,
+		},
+		{
+			"negative amount",
+			`{"amount":-100,"currency":"RUB","merchant_id":"m_123","payment_method":{"type":"card"}}`,
+		},
+		{
+			"missing currency",
+			`{"amount":10000,"merchant_id":"m_123","payment_method":{"type":"card"}}`,
+		},
+		{
+			"missing merchant_id",
+			`{"amount":10000,"currency":"RUB","payment_method":{"type":"card"}}`,
+		},
+		{
+			"missing payment_method type",
+			`{"amount":10000,"currency":"RUB","merchant_id":"m_123"}`,
+		},
+		{
+			"all empty",
+			`{}`,
+		},
 	}
 
 	for _, tt := range tests {
