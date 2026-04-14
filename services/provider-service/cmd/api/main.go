@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/circuitbreaker"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/consumer"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/events"
@@ -21,6 +22,7 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/middleware"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/publisher"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/repository"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/router"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/service"
 )
 
@@ -78,7 +80,14 @@ func main() {
 	defer nc.Close()
 	slog.Info("connected to NATS")
 
-	svc := service.New(repo, registry)
+	thompsonRouter := router.NewRouter()
+
+	cbManager := circuitbreaker.NewManager(
+    circuitbreaker.DefaultConfig(),
+    thompsonRouter.OnHalfOpen, // колбэк: CB → Thompson Sampling
+)
+
+	svc := service.New(repo, registry, thompsonRouter, cbManager)
 	pub := publisher.New(js)
 
 	// Роутер
