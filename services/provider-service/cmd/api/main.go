@@ -12,6 +12,7 @@ import (
 
 	natsgo "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/circuitbreaker"
@@ -85,7 +86,13 @@ func main() {
 	cbManager := circuitbreaker.NewManager(
     circuitbreaker.DefaultConfig(),
     thompsonRouter.OnHalfOpen, // колбэк: CB → Thompson Sampling
-)
+	)
+
+	// Инициализируем метрики CB для всех провайдеров сразу при старте
+	// Без этого gauge появляется только после первого перехода состояния
+	for _, p := range providers {
+    	cbManager.InitMetrics(p.Name)
+	}
 
 	svc := service.New(repo, registry, thompsonRouter, cbManager)
 	pub := publisher.New(js)
@@ -94,9 +101,11 @@ func main() {
 	mux := http.NewServeMux()
 	handler.NewHealthHandler(repo).Register(mux)
 	handler.NewProcessHandler(svc).Register(mux)
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	// Middleware chain: Recover → RequestID → Logging → Handler
 	var h http.Handler = mux
+	h = middleware.Metrics(h)
 	h = middleware.Logging(h)
 	h = middleware.RequestID(h)
 	h = middleware.Recover(h)

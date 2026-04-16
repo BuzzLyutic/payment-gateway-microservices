@@ -1,0 +1,53 @@
+{
+  "title": "Payment Gateway",
+  "uid": "payment-gateway",
+  "panels": [
+    {
+      "title": "Payment Success Rate by Provider",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(provider_payments_total{status=\"captured\"}[5m]) / rate(provider_payments_total[5m])",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    },
+    {
+      "title": "Payment Latency p95",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(provider_payment_duration_seconds_bucket[5m]))",
+          "legendFormat": "{{provider}} p95"
+        }
+      ]
+    },
+    {
+      "title": "Circuit Breaker State",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "provider_circuit_breaker_state",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    },
+    {
+      "title": "Thompson Sampling - Success Probability",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "provider_thompson_success_probability",
+          "legendFormat": "{{provider}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "time": {"from": "now-15m", "to": "now"},
+  "schemaVersion": 38
+}

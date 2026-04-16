@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 	"math/rand"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/circuitbreaker"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/domain"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/metrics"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/router"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Repository interface {
@@ -44,13 +46,11 @@ func New(
 }
 
 func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest) (*domain.ProcessResult, error) {
-	// 1. Получаем всех активных провайдеров для валюты и метода
 	allProviders, err := s.repo.FindActive(ctx, req.Currency, req.PaymentMethod)
 	if err != nil {
 		return nil, fmt.Errorf("find providers: %w", err)
 	}
 
-	// 2. Фильтрация: исключаем провайдеров с открытым Circuit Breaker
 	candidates := make([]*domain.Provider, 0, len(allProviders))
 	for _, p := range allProviders {
 		if s.cb.IsOpen(p.Name) {
@@ -64,11 +64,11 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 	}
 
 	if len(candidates) == 0 {
+		// Счётчик: нет доступных провайдеров — специальный label "none"
+		metrics.PaymentsTotal.WithLabelValues("none", "failed").Inc()
+
 		slog.Error("no providers available after CB filtering",
 			"transaction_id", req.TransactionID,
-			"currency", req.Currency,
-			"payment_method", req.PaymentMethod,
-			"total_providers", len(allProviders),
 		)
 		return &domain.ProcessResult{
 			TransactionID: req.TransactionID,
@@ -77,7 +77,6 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 		}, nil
 	}
 
-	// 3. Thompson Sampling выбирает провайдера
 	selected, err := s.router.Select(ctx, candidates)
 	if err != nil {
 		return nil, fmt.Errorf("router select: %w", err)
@@ -89,19 +88,17 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 		"candidates", len(candidates),
 	)
 
-	// 4. Получаем адаптер
 	pa, err := s.registry.Get(selected.Name)
 	if err != nil {
 		return nil, fmt.Errorf("get adapter: %w", err)
 	}
 
-	// 5. Проверяем Circuit Breaker перед вызовом
 	if err := s.cb.Allow(selected.Name); err != nil {
-		// CB открылся между фильтрацией и вызовом — редкий race condition
 		slog.Warn("circuit breaker rejected request",
 			"provider", selected.Name,
 			"transaction_id", req.TransactionID,
 		)
+		metrics.PaymentsTotal.WithLabelValues(selected.Name, "failed").Inc()
 		return &domain.ProcessResult{
 			TransactionID: req.TransactionID,
 			Status:        domain.ResultFailed,
@@ -109,15 +106,20 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 		}, nil
 	}
 
-	// 6. Вызов с retry и замером латентности
+	// Замер латентности через timer — автоматически запишет в гистограмму
+	timer := prometheus.NewTimer(
+		metrics.PaymentDuration.WithLabelValues(selected.Name),
+	)
 	start := time.Now()
 	result, err := s.callWithRetry(ctx, pa, req, selected.Name)
 	latencyMs := time.Since(start).Milliseconds()
+	timer.ObserveDuration()
 
 	if err != nil {
-		// Transient-ошибки и исчерпание retry — failure для CB и Thompson
 		s.cb.RecordFailure(selected.Name)
 		s.router.RecordResult(selected.Name, false, latencyMs)
+
+		metrics.PaymentsTotal.WithLabelValues(selected.Name, "failed").Inc()
 
 		slog.Error("provider call failed",
 			"provider", selected.Name,
@@ -134,16 +136,22 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 		}, nil
 	}
 
-	// 7. Обновляем статистику по результату
 	success := result.Status == domain.ResultCaptured
 	if success {
 		s.cb.RecordSuccess(selected.Name)
 	} else {
-		// Declined — не failure для CB (это бизнес-решение провайдера),
-		// но для Thompson Sampling это неуспех
-		s.cb.RecordSuccess(selected.Name) // провайдер ответил корректно
+		s.cb.RecordSuccess(selected.Name)
 	}
 	s.router.RecordResult(selected.Name, success, latencyMs)
+
+	// Счётчик по фактическому статусу
+	metrics.PaymentsTotal.WithLabelValues(selected.Name, string(result.Status)).Inc()
+
+	// Обновляем gauges Thompson Sampling после каждой транзакции
+	alpha, beta := s.router.GetParams(selected.Name)
+	metrics.ThompsonAlpha.WithLabelValues(selected.Name).Set(alpha)
+	metrics.ThompsonBeta.WithLabelValues(selected.Name).Set(beta)
+	metrics.ThompsonSuccessProbability.WithLabelValues(selected.Name).Set(alpha / (alpha + beta))
 
 	slog.Info("payment processed",
 		"provider", selected.Name,
@@ -162,13 +170,16 @@ func (s *Service) ProcessPayment(ctx context.Context, req *domain.ProcessRequest
 	}, nil
 }
 
-// callWithRetry — без изменений, оставляем как было
 func (s *Service) callWithRetry(ctx context.Context, pa adapter.PaymentAdapter, req *domain.ProcessRequest, providerName string) (*adapter.AdapterResult, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= s.maxRetries; attempt++ {
 		if attempt > 0 {
 			delay := s.backoffWithJitter(attempt)
+
+			// Счётчик retry
+			metrics.PaymentRetries.WithLabelValues(providerName).Inc()
+
 			slog.Warn("retrying provider call",
 				"provider", providerName,
 				"transaction_id", req.TransactionID,

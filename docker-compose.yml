@@ -183,7 +183,36 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+  
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'  # позволяет reload конфига без рестарта
+    restart: on-failure
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: on-failure
 
 volumes:
+  grafana_data:
+  prometheus_data:
   postgres_data:
   postgres_provider_data:

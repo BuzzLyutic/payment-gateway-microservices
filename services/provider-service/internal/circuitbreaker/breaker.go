@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/metrics"
 )
 
 // State - состояние Circuit Breaker.
@@ -176,11 +178,27 @@ func (b *Breaker) transitionTo(next State) {
 		"to", next.String(),
 	)
 
+	// Метрики переходов
+	metrics.CircuitBreakerTransitions.WithLabelValues(
+		b.providerName,
+		prev.String(),
+		next.String(),
+	).Inc()
+
+	// Gauge текущего состояния
+	switch next {
+	case StateClosed:
+		metrics.CircuitBreakerState.WithLabelValues(b.providerName).Set(0)
+	case StateOpen:
+		metrics.CircuitBreakerState.WithLabelValues(b.providerName).Set(1)
+	case StateHalfOpen:
+		metrics.CircuitBreakerState.WithLabelValues(b.providerName).Set(2)
+	}
+
 	switch next {
 	case StateOpen:
 		b.openedAt = time.Now()
 		b.consecutiveFailures = 0
-
 	case StateHalfOpen:
 		b.consecutiveSuccesses = 0
 		// Уведомляем Thompson Sampling о восстановлении
@@ -259,4 +277,10 @@ func (m *Manager) States(ctx context.Context) map[string]string {
 		result[name] = b.CurrentState().String()
 	}
 	return result
+}
+
+// InitMetrics инициализирует gauge для провайдера в состоянии Closed.
+// Вызывается при старте чтобы метрика существовала до первого перехода.
+func (m *Manager) InitMetrics(providerName string) {
+    metrics.CircuitBreakerState.WithLabelValues(providerName).Set(0)
 }
