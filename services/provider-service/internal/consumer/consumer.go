@@ -10,6 +10,7 @@ import (
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/domain"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/events"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/metrics"
 )
 
 // PaymentProcessor — интерфейс обработки платежа. Реализует service.Service.
@@ -60,6 +61,7 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 	if err := json.Unmarshal(msg.Data(), &event); err != nil {
 		slog.Error("failed to unmarshal payment.risk_approved", "error", err)
 		msg.Term()
+		metrics.NATSMessagesProcessed.WithLabelValues(msg.Subject(), "term").Inc()
 		return
 	}
 
@@ -87,6 +89,7 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 			"error", err,
 		)
 		msg.Nak()
+		metrics.NATSMessagesProcessed.WithLabelValues(msg.Subject(), "nak").Inc()
 		return
 	}
 
@@ -105,6 +108,7 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 			"error", err,
 		)
 		msg.Nak()
+		metrics.NATSMessagesProcessed.WithLabelValues(msg.Subject(), "nak").Inc()
 		return
 	}
 
@@ -115,4 +119,5 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 	)
 
 	msg.Ack()
+	metrics.NATSMessagesProcessed.WithLabelValues(msg.Subject(), "ack").Inc()
 }

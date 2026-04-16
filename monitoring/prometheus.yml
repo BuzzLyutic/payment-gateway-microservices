@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: provider-service
+    static_configs:
+      - targets: ['provider-service:8082']  # внутренний порт
+
+  - job_name: transaction-service
+    static_configs:
+      - targets: ['transaction-service:8080']
+
+  - job_name: risk-service
+    static_configs:
+      - targets: ['risk-service:8083']
+
+  - job_name: nats
+    static_configs:
+      - targets: ['nats:8222']
+    metrics_path: /metrics   # NATS экспортирует на /metrics через порт 8222

@@ -292,3 +292,12 @@ func sortFloat64(a []float64) {
 		a[j+1] = key
 	}
 }
+
+// GetParams возвращает текущие параметры бета-распределения провайдера.
+// Используется для экспорта метрик Prometheus.
+func (r *Router) GetParams(providerName string) (alpha, beta float64) {
+	stats := r.getOrCreate(providerName)
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	return stats.alpha, stats.beta
+}
