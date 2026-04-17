@@ -98,11 +98,15 @@ services:
       - DB_NAME=provider_db
       - SERVER_PORT=8082
       - NATS_URL=nats://nats:4222
+      - REDIS_ADDR=redis:6379
+      - REDIS_DB=1
       - LOG_LEVEL=debug
     depends_on:
       postgres-provider:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       risk-service:
         condition: service_healthy

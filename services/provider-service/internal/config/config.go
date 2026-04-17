@@ -11,7 +11,14 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	NATS     NATSConfig
+	Redis    RedisConfig
 	LogLevel slog.Level
+}
+
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
 }
 
 type NATSConfig struct {
@@ -51,6 +58,11 @@ func Load() *Config {
 		},
 		NATS: NATSConfig{
     		URL: getEnv("NATS_URL", "nats://localhost:4222"),
+		},
+		Redis: RedisConfig{
+			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvInt("REDIS_DB", 1), // DB=1 чтобы не конфликтовать с transaction-service
 		},
 		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
 	}
