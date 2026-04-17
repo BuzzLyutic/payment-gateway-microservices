@@ -3,14 +3,14 @@
 package auth_test
 
 import (
-    "context"
-    "errors"
-    "fmt"
-    "testing"
+	"context"
+	"errors"
+	"fmt"
+	"testing"
 	"time"
 
-    "github.com/redis/go-redis/v9"
-    "github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/auth"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/auth"
+	"github.com/redis/go-redis/v9"
 )
 
 func newTestRedis(t *testing.T) *redis.Client {

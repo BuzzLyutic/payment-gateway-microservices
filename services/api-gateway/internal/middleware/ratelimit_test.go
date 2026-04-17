@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/auth"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/middleware"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestRateLimit_RedisUnavailable_FailOpen(t *testing.T) {

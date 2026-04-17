@@ -1,9 +1,9 @@
 package middleware_test
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"log/slog"
 	"os"
 	"testing"
 
