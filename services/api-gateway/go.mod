@@ -1,6 +1,6 @@
 module github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway
 
-go 1.25.0
+go 1.24.10
 
 require github.com/redis/go-redis/v9 v9.18.0
 
