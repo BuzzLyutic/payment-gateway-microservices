@@ -1,0 +1,81 @@
+name: CI — Risk Service
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'services/risk-service/**'
+      - '.github/workflows/ci-risk-service.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'services/risk-service/**'
+      - '.github/workflows/ci-risk-service.yml'
+
+defaults:
+  run:
+    working-directory: services/risk-service
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: services/risk-service/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59
+          working-directory: services/risk-service
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: services/risk-service/go.sum
+
+      - name: Run tests
+        run: go test ./... -v -race -count=1
+
+      - name: Check coverage
+        run: |
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+          COVERAGE=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')
+          echo "Coverage: ${COVERAGE}%"
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 60) { print "Coverage " cov "% is below 60%"; exit 1 } }'
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [ lint, test ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag risk-service:${{ github.sha }} \
+            --file Dockerfile \
+            .
+
+      - name: Check image size
+        run: |
+          SIZE=$(docker image inspect risk-service:${{ github.sha }} \
+            --format='{{.Size}}')
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "Image size: ${SIZE_MB}MB"
+          if [ "$SIZE_MB" -gt 100 ]; then
+            echo "Image too large: ${SIZE_MB}MB > 100MB"
+            exit 1
+          fi

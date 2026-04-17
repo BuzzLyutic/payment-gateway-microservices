@@ -1,0 +1,26 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck      # проверяет что ошибки не игнорируются
+    - gosimple      # упрощение кода
+    - govet         # подозрительные конструкции
+    - ineffassign   # присваивание без использования
+    - staticcheck   # статический анализ
+    - unused        # неиспользуемый код
+    - gofmt         # форматирование
+    - goimports     # порядок импортов
+    - misspell      # опечатки в комментариях
+    - godot         # точка в конце комментариев (опционально)
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/BuzzLyutic
+
+issues:
+  exclude-rules:
+    # Тесты — менее строгие требования
+    - path: _test\.go
+      linters:
+        - errcheck
