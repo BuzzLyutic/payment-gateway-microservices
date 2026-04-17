@@ -38,12 +38,16 @@ jobs:
           # Проверить что пакет реально доступен
           go list -m github.com/redis/go-redis/v9
 
+      - name: Clean golangci-lint cache
+        run: |
+          mkdir -p ~/.cache/golangci-lint
+          rm -rf ~/.cache/golangci-lint/*
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.59
           working-directory: services/api-gateway
-          args: --no-cache
 
   test:
     name: Test
@@ -59,15 +63,6 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests with coverage
-        run: |
-          go test ./... \
-            -v \
-            -race \
-            -count=1 \
-            -coverprofile=coverage.out \
-            -covermode=atomic
-
       - name: Show coverage details
         run: |
           echo "=== Full coverage report ==="
@@ -76,6 +71,15 @@ jobs:
           go tool cover -func=coverage.out | grep "^total:"
           echo "=== Extracted value ==="
           go tool cover -func=coverage.out | grep "^total:" | awk '{print $3}'
+
+      - name: Run tests with coverage
+        run: |
+          go test ./... \
+            -v \
+            -race \
+            -count=1 \
+            -coverprofile=coverage.out \
+            -covermode=atomic
 
       - name: Check coverage threshold
         run: |
