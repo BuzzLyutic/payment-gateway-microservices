@@ -11,11 +11,10 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/circuitbreaker"
 )
 
-
 func TestMain(m *testing.M) {
-    // Отключаем slog во время тестов
-    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-    os.Exit(m.Run())
+	// Отключаем slog во время тестов
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
 }
 
 // Хелперы

@@ -97,7 +97,6 @@ func main() {
 	defer nc.Close()
 	slog.Info("connected to NATS")
 
-
 	// Thompson Sampling Router с персистентностью
 	var thompsonRouter *router.Router
 	if redisStore != nil {
@@ -115,14 +114,14 @@ func main() {
 	}
 
 	cbManager := circuitbreaker.NewManager(
-    	circuitbreaker.DefaultConfig(),
-    	thompsonRouter.OnHalfOpen, // колбэк: CB → Thompson Sampling
+		circuitbreaker.DefaultConfig(),
+		thompsonRouter.OnHalfOpen, // колбэк: CB → Thompson Sampling
 	)
 
 	// Инициализируем метрики CB для всех провайдеров сразу при старте
 	// Без этого gauge появляется только после первого перехода состояния
 	for _, p := range providers {
-    	cbManager.InitMetrics(p.Name)
+		cbManager.InitMetrics(p.Name)
 	}
 
 	svc := service.New(repo, registry, thompsonRouter, cbManager)
@@ -178,7 +177,7 @@ func main() {
 	slog.Info("received shutdown signal", "signal", sig.String())
 
 	bgCancel()
-	
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

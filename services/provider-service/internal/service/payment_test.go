@@ -16,11 +16,10 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/service"
 )
 
-
 func TestMain(m *testing.M) {
-    // Отключаем slog во время тестов
-    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-    os.Exit(m.Run())
+	// Отключаем slog во время тестов
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
 }
 
 // Моки
@@ -36,9 +35,9 @@ func (m *mockRepo) FindActive(_ context.Context, _, _ string) ([]*domain.Provide
 
 // mockAdapter с счётчиком вызовов — нужен для проверки retry.
 type mockAdapter struct {
-	result   *adapter.AdapterResult
-	err      error
-	calls    int
+	result *adapter.AdapterResult
+	err    error
+	calls  int
 	// callResults позволяет задать разные ответы на каждый вызов.
 	// Если nil — всегда возвращает result/err.
 	callResults []callResult
@@ -463,11 +462,11 @@ func TestService_ThompsonSampling_ExploresNewProvider(t *testing.T) {
 	// Минимальный порог 5% от total — достаточно консервативен.
 	minCalls := total / 20 // 5% = 10 вызовов из 200
 	if seen["provider_a"] < minCalls {
-		t.Errorf("provider_a got only %d calls, want >= %d (exploration)", 
+		t.Errorf("provider_a got only %d calls, want >= %d (exploration)",
 			seen["provider_a"], minCalls)
 	}
 	if seen["provider_b"] < minCalls {
-		t.Errorf("provider_b got only %d calls, want >= %d (exploration)", 
+		t.Errorf("provider_b got only %d calls, want >= %d (exploration)",
 			seen["provider_b"], minCalls)
 	}
 }

@@ -340,8 +340,8 @@ func (r *Router) LoadFromStore(ctx context.Context, providerNames []string) erro
 func (r *Router) persistStats(providerName string, stats *ProviderStats) {
 	if r.store == nil {
 		slog.Warn("thompson sampling: store is nil, skipping persist",
-            "provider", providerName,
-        )
+			"provider", providerName,
+		)
 		return
 	}
 

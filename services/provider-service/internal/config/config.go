@@ -57,7 +57,7 @@ func Load() *Config {
 			Name:     getEnv("DB_NAME", "provider_db"),
 		},
 		NATS: NATSConfig{
-    		URL: getEnv("NATS_URL", "nats://localhost:4222"),
+			URL: getEnv("NATS_URL", "nats://localhost:4222"),
 		},
 		Redis: RedisConfig{
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),

@@ -59,9 +59,9 @@ type Breaker struct {
 	config       Config
 	state        State
 
-	consecutiveFailures int
+	consecutiveFailures  int
 	consecutiveSuccesses int
-	openedAt            time.Time
+	openedAt             time.Time
 
 	// Колбэк вызывается при переходе в HalfOpen.
 	// Thompson Sampling использует это для сброса параметров.
@@ -282,5 +282,5 @@ func (m *Manager) States(ctx context.Context) map[string]string {
 // InitMetrics инициализирует gauge для провайдера в состоянии Closed.
 // Вызывается при старте чтобы метрика существовала до первого перехода.
 func (m *Manager) InitMetrics(providerName string) {
-    metrics.CircuitBreakerState.WithLabelValues(providerName).Set(0)
+	metrics.CircuitBreakerState.WithLabelValues(providerName).Set(0)
 }

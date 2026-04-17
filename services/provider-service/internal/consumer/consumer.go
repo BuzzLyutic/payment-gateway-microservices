@@ -66,7 +66,7 @@ func (c *Consumer) handle(msg jetstream.Msg) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-    defer cancel()
+	defer cancel()
 
 	slog.Info("received payment.risk_approved",
 		"transaction_id", event.TransactionID,

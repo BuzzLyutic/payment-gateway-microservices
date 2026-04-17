@@ -12,11 +12,10 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/router"
 )
 
-
 func TestMain(m *testing.M) {
-    // Отключаем slog во время тестов
-    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-    os.Exit(m.Run())
+	// Отключаем slog во время тестов
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
 }
 
 // Хелперы
@@ -249,7 +248,7 @@ func TestRouter_Select_PrefersLowerCommission_WhenSuccessEqual(t *testing.T) {
 	warmup(r, "provider_cheap", 50, 50, 100)
 	warmup(r, "provider_expensive", 50, 50, 100)
 
-	providerCheap := newProvider("provider_cheap", 0.5)     // низкая комиссия
+	providerCheap := newProvider("provider_cheap", 0.5)         // низкая комиссия
 	providerExpensive := newProvider("provider_expensive", 2.9) // высокая комиссия
 	providers := []*domain.Provider{providerCheap, providerExpensive}
 

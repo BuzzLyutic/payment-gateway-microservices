@@ -20,7 +20,7 @@ func TestNewMockAdapter_Defaults(t *testing.T) {
 
 func TestNewMockAdapter_FromConfig(t *testing.T) {
 	cfg := map[string]any{
-		"success_rate":    float64(100),
+		"success_rate":   float64(100),
 		"min_latency_ms": float64(0),
 		"max_latency_ms": float64(0),
 	}
@@ -50,7 +50,7 @@ func TestNewMockAdapter_FromConfig(t *testing.T) {
 func TestMockAdapter_AlwaysDeclined(t *testing.T) {
 	// success_rate=0 — никогда не captured
 	cfg := map[string]any{
-		"success_rate":    float64(0),
+		"success_rate":   float64(0),
 		"min_latency_ms": float64(0),
 		"max_latency_ms": float64(0),
 	}
@@ -83,7 +83,7 @@ func TestMockAdapter_AlwaysDeclined(t *testing.T) {
 
 func TestMockAdapter_ContextCancellation(t *testing.T) {
 	cfg := map[string]any{
-		"success_rate":    float64(100),
+		"success_rate":   float64(100),
 		"min_latency_ms": float64(500),
 		"max_latency_ms": float64(1000),
 	}
@@ -112,7 +112,7 @@ func TestMockAdapter_ContextCancellation(t *testing.T) {
 
 func TestMockAdapter_ProviderTxID(t *testing.T) {
 	cfg := map[string]any{
-		"success_rate":    float64(100),
+		"success_rate":   float64(100),
 		"min_latency_ms": float64(0),
 		"max_latency_ms": float64(0),
 	}

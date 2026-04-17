@@ -42,7 +42,7 @@ func (a *MockAdapter) ProcessPayment(ctx context.Context, req *domain.ProcessReq
 			Status:       domain.ResultCaptured,
 		}, nil
 
-	case roll < a.successRate + (100-a.successRate)/2:
+	case roll < a.successRate+(100-a.successRate)/2:
 		return nil, fmt.Errorf("%w: provider timeout", ErrTransient)
 
 	default:
@@ -80,23 +80,23 @@ func generateTxID() string {
 }
 
 func getIntOrDefault(cfg map[string]any, key string, fallback int) int {
-    v, ok := cfg[key]
-    if !ok {
-        return fallback
-    }
-    // pgx сканирует числа из JSONB как float64
-    switch val := v.(type) {
-    case float64:
-        return int(val)
-    case int:
-        return val
-    case string:
-        i, err := strconv.Atoi(val)
-        if err != nil {
-            return fallback
-        }
-        return i
-    default:
-        return fallback
-    }
+	v, ok := cfg[key]
+	if !ok {
+		return fallback
+	}
+	// pgx сканирует числа из JSONB как float64
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case int:
+		return val
+	case string:
+		i, err := strconv.Atoi(val)
+		if err != nil {
+			return fallback
+		}
+		return i
+	default:
+		return fallback
+	}
 }
