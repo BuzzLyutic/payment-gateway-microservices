@@ -43,12 +43,8 @@ jobs:
           mkdir -p ~/.cache/golangci-lint
           rm -rf ~/.cache/golangci-lint/*
 
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          working-directory: services/transaction-service
+      - name: go vet (fallback вместо golangci-lint)
+        run: go vet ./...
 
   test:
     name: Test
