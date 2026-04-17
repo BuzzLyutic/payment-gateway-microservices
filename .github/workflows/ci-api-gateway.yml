@@ -31,11 +31,19 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Debug - verify dependencies
+        run: |
+          go mod verify
+          go build ./...
+          # Проверить что пакет реально доступен
+          go list -m github.com/redis/go-redis/v9
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.59
           working-directory: services/api-gateway
+          args: --no-cache
 
   test:
     name: Test
@@ -60,18 +68,31 @@ jobs:
             -coverprofile=coverage.out \
             -covermode=atomic
 
+      - name: Show coverage details
+        run: |
+          echo "=== Full coverage report ==="
+          go tool cover -func=coverage.out
+          echo "=== Total line ==="
+          go tool cover -func=coverage.out | grep "^total:"
+          echo "=== Extracted value ==="
+          go tool cover -func=coverage.out | grep "^total:" | awk '{print $3}'
+
       - name: Check coverage threshold
         run: |
-          go tool cover -func=coverage.out
           COVERAGE=$(go tool cover -func=coverage.out \
             | grep "^total:" \
             | awk '{print $3}' \
             | sed 's/%//')
+          
           echo "Total coverage: ${COVERAGE}%"
-          awk -v cov="$COVERAGE" \
-            'BEGIN { if (cov+0 < 60) \
-              { print "FAIL: " cov "% < 60%"; exit 1 } \
-              else { print "OK: " cov "% >= 60%" } }'
+          
+          # bc корректно работает с float
+          BELOW=$(echo "${COVERAGE} < 60" | bc -l)
+          if [ "$BELOW" -eq 1 ]; then
+            echo "FAIL: ${COVERAGE}% < 60%"
+            exit 1
+          fi
+          echo "OK: ${COVERAGE}% >= 60%"
 
   build:
     name: Build Docker Image
