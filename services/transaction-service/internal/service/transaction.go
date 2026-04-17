@@ -18,7 +18,7 @@ type Repository interface {
 }
 
 type TransactionService struct {
-	repo Repository
+	repo      Repository
 	publisher Publisher
 }
 
@@ -29,8 +29,8 @@ type Publisher interface {
 
 func New(repo Repository, pub Publisher) *TransactionService {
 	return &TransactionService{
-		repo:       repo,
-		publisher:  pub,
+		repo:      repo,
+		publisher: pub,
 	}
 }
 
@@ -87,7 +87,6 @@ type CreatePaymentRequest struct {
 	CustomerEmail  string
 	Metadata       map[string]string
 }
-
 
 // ProcessPendingPayments забирает pending-транзакции и обрабатывает каждую.
 // Вызывается воркером по таймеру.
