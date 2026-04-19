@@ -388,3 +388,62 @@ func TestBreaker_FullCycle_ClosedOpenHalfOpenClosed(t *testing.T) {
 		t.Errorf("step 5: Allow() = %v, want nil after recovery", err)
 	}
 }
+
+func TestDefaultConfig_Values(t *testing.T) {
+	cfg := circuitbreaker.DefaultConfig()
+
+	if cfg.FailureThreshold != 5 {
+		t.Errorf("FailureThreshold: expected 5, got %d", cfg.FailureThreshold)
+	}
+	if cfg.OpenTimeout != 30*time.Second {
+		t.Errorf("OpenTimeout: expected 30s, got %v", cfg.OpenTimeout)
+	}
+	if cfg.HalfOpenSuccesses != 2 {
+		t.Errorf("HalfOpenSuccesses: expected 2, got %d", cfg.HalfOpenSuccesses)
+	}
+}
+
+func TestManager_RecordSuccess_Shortcut(t *testing.T) {
+	// Manager.RecordSuccess — обёртка над Breaker.RecordSuccess.
+	// Проверяем что не паникует и работает.
+	cfg := circuitbreaker.Config{
+		FailureThreshold:  2,
+		OpenTimeout:       30 * time.Second,
+		HalfOpenSuccesses: 1,
+	}
+	m := circuitbreaker.NewManager(cfg, nil)
+
+	// Не должен паниковать для нового провайдера.
+	m.RecordSuccess("new_provider")
+
+	if m.IsOpen("new_provider") {
+		t.Error("CB should be closed after success")
+	}
+}
+
+func TestManager_InitMetrics_DoesNotPanic(t *testing.T) {
+	m := circuitbreaker.NewManager(circuitbreaker.DefaultConfig(), nil)
+
+	// Не должен паниковать.
+	m.InitMetrics("test_provider")
+}
+
+func TestState_String_AllValues(t *testing.T) {
+	// Покрываем String() для всех состояний включая unknown.
+	tests := []struct {
+		state    circuitbreaker.State
+		expected string
+	}{
+		{circuitbreaker.StateClosed, "closed"},
+		{circuitbreaker.StateOpen, "open"},
+		{circuitbreaker.StateHalfOpen, "half-open"},
+		{circuitbreaker.State(99), "unknown"}, // неизвестное состояние
+	}
+
+	for _, tt := range tests {
+		got := tt.state.String()
+		if got != tt.expected {
+			t.Errorf("State(%d).String() = %q, want %q", tt.state, got, tt.expected)
+		}
+	}
+}
