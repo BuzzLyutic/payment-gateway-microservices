@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/adapter"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/circuitbreaker"
@@ -217,7 +218,7 @@ func TestService_ProcessPayment_TransientRetry_ExhaustsRetries(t *testing.T) {
 	// Минимальный CB threshold чтобы он не открылся раньше времени
 	cbCfg := circuitbreaker.Config{
 		FailureThreshold:  100,
-		OpenTimeout:       30,
+		OpenTimeout:       30 * time.Second,
 		HalfOpenSuccesses: 2,
 	}
 	r := router.NewRouter()
@@ -277,7 +278,7 @@ func TestService_CircuitBreaker_OpensAfterFailures(t *testing.T) {
 	// CB открывается после 2 failures — порог специально низкий для теста
 	cbCfg := circuitbreaker.Config{
 		FailureThreshold:  2,
-		OpenTimeout:       30,
+		OpenTimeout:       30 * time.Second,
 		HalfOpenSuccesses: 1,
 	}
 	r := router.NewRouter()
@@ -312,7 +313,7 @@ func TestService_CircuitBreaker_RecordsSuccessOnCaptured(t *testing.T) {
 
 	cbCfg := circuitbreaker.Config{
 		FailureThreshold:  2,
-		OpenTimeout:       30,
+		OpenTimeout:       30 * time.Second,
 		HalfOpenSuccesses: 1,
 	}
 	r := router.NewRouter()
@@ -348,7 +349,7 @@ func TestService_CircuitBreaker_DeclinedDoesNotOpenCB(t *testing.T) {
 
 	cbCfg := circuitbreaker.Config{
 		FailureThreshold:  3,
-		OpenTimeout:       30,
+		OpenTimeout:       30 * time.Second,
 		HalfOpenSuccesses: 1,
 	}
 	r := router.NewRouter()
