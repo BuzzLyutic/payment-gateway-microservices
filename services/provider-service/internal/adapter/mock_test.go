@@ -136,3 +136,120 @@ func TestMockAdapter_ProviderTxID(t *testing.T) {
 		t.Error("expected non-empty provider_tx_id on captured")
 	}
 }
+
+func TestGetIntOrDefault_IntType(t *testing.T) {
+	// Ветка case int: — не покрыта (pgx даёт float64, но int тоже должен работать)
+	cfg := map[string]any{
+		"success_rate":   int(100), // явный int, не float64
+		"min_latency_ms": int(0),
+		"max_latency_ms": int(0),
+	}
+
+	a := adapter.NewMockAdapter(cfg)
+	if a == nil {
+		t.Fatal("expected non-nil adapter with int config values")
+	}
+
+	req := &domain.ProcessRequest{
+		TransactionID: "tx_int_type",
+		MerchantID:    "merchant_1",
+		Amount:        1000,
+		Currency:      "RUB",
+		PaymentMethod: "card",
+	}
+
+	// success_rate=100 (int) → всегда captured
+	result, err := a.ProcessPayment(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != domain.ResultCaptured {
+		t.Errorf("expected captured with int success_rate=100, got %v", result.Status)
+	}
+}
+
+func TestGetIntOrDefault_StringType(t *testing.T) {
+	// Ветка case string: — парсинг строки в int
+	cfg := map[string]any{
+		"success_rate":   "100", // строка
+		"min_latency_ms": "0",
+		"max_latency_ms": "0",
+	}
+
+	a := adapter.NewMockAdapter(cfg)
+	if a == nil {
+		t.Fatal("expected non-nil adapter with string config values")
+	}
+
+	req := &domain.ProcessRequest{
+		TransactionID: "tx_string_type",
+		MerchantID:    "merchant_1",
+		Amount:        1000,
+		Currency:      "RUB",
+		PaymentMethod: "card",
+	}
+
+	result, err := a.ProcessPayment(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != domain.ResultCaptured {
+		t.Errorf("expected captured with string success_rate=100, got %v", result.Status)
+	}
+}
+
+func TestGetIntOrDefault_InvalidStringFallback(t *testing.T) {
+	// Ветка case string: с невалидным значением → fallback
+	cfg := map[string]any{
+		"success_rate":   "not-a-number", // невалидная строка → fallback=80
+		"min_latency_ms": "0",
+		"max_latency_ms": "0",
+	}
+
+	// Не паникует, создаёт адаптер с дефолтным success_rate=80
+	a := adapter.NewMockAdapter(cfg)
+	if a == nil {
+		t.Fatal("expected non-nil adapter even with invalid string config")
+	}
+}
+
+func TestGetIntOrDefault_UnknownTypeFallback(t *testing.T) {
+	// Ветка default: — неизвестный тип → fallback
+	cfg := map[string]any{
+		"success_rate":   []int{1, 2, 3}, // неподдерживаемый тип
+		"min_latency_ms": "0",
+		"max_latency_ms": "0",
+	}
+
+	// Не паникует, использует fallback
+	a := adapter.NewMockAdapter(cfg)
+	if a == nil {
+		t.Fatal("expected non-nil adapter with unknown type config")
+	}
+}
+
+func TestGetIntOrDefault_MissingKey_UsesFallback(t *testing.T) {
+	// Ключ отсутствует → fallback
+	cfg := map[string]any{} // пустой конфиг
+
+	a := adapter.NewMockAdapter(cfg)
+	if a == nil {
+		t.Fatal("expected non-nil adapter with empty config")
+	}
+
+	// Дефолты: success_rate=80, min=50ms, max=200ms
+	// Просто проверяем что не паникует при вызове
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	req := &domain.ProcessRequest{
+		TransactionID: "tx_fallback",
+		MerchantID:    "merchant_1",
+		Amount:        1000,
+		Currency:      "RUB",
+		PaymentMethod: "card",
+	}
+
+	// Может вернуть любой результат — главное не паникует
+	_, _ = a.ProcessPayment(ctx, req)
+}
