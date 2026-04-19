@@ -174,3 +174,222 @@ func TestLoad_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_ParseRule_UnknownOperator(t *testing.T) {
+	// validateOperator: неизвестный оператор → ошибка
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "bad_op",
+			"type": "simple",
+			"field": "amount",
+			"operator": "contains",
+			"value": 1000,
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for unknown operator, got nil")
+	}
+}
+
+func TestLoad_ParseRule_UnknownKeyField(t *testing.T) {
+	// validateKeyField: неизвестный key_field → ошибка
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "bad_keyfield",
+			"type": "velocity",
+			"key_field": "email",
+			"window": "10m",
+			"threshold": 5,
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for unknown key_field, got nil")
+	}
+}
+
+func TestLoad_ParseRule_EmptyName_ReturnsError(t *testing.T) {
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "",
+			"type": "simple",
+			"field": "amount",
+			"operator": "gt",
+			"value": 1000,
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for empty name, got nil")
+	}
+}
+
+func TestLoad_ParseRule_ZeroScore_ReturnsError(t *testing.T) {
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "zero_score",
+			"type": "simple",
+			"field": "amount",
+			"operator": "gt",
+			"value": 1000,
+			"score": 0
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for score=0, got nil")
+	}
+}
+
+func TestLoad_ParseRule_VelocityZeroThreshold_ReturnsError(t *testing.T) {
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "zero_threshold",
+			"type": "velocity",
+			"key_field": "merchant_id",
+			"window": "10m",
+			"threshold": 0,
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for threshold=0, got nil")
+	}
+}
+
+func TestLoad_ParseRule_EmptyTypeDefaultsToSimple(t *testing.T) {
+	// Пустой type → трактуется как simple
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "no_type",
+			"field": "amount",
+			"operator": "gt",
+			"value": 1000,
+			"score": 10
+		}]
+	}`)
+
+	rules, err := loader.Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error for empty type: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(rules))
+	}
+	if rules[0].Type != domain.RuleTypeSimple {
+		t.Errorf("empty type: expected simple, got %q", rules[0].Type)
+	}
+}
+
+func TestLoad_ParseValue_MissingValue_ReturnsError(t *testing.T) {
+	// value отсутствует для simple rule
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "no_value",
+			"type": "simple",
+			"field": "amount",
+			"operator": "gt",
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for missing value, got nil")
+	}
+}
+
+func TestLoad_ParseValue_NonNumericValue_ReturnsError(t *testing.T) {
+	// value не число для не-between оператора
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "string_value",
+			"type": "simple",
+			"field": "amount",
+			"operator": "gt",
+			"value": "high",
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for non-numeric value with gt operator, got nil")
+	}
+}
+
+func TestLoad_InvalidJSON_ReturnsError(t *testing.T) {
+	path := writeTempFile(t, `{not valid json`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestLoad_MultipleRules_AllParsed(t *testing.T) {
+	path := writeTempFile(t, `{
+		"rules": [
+			{
+				"name": "rule_1",
+				"type": "simple",
+				"field": "amount",
+				"operator": "gt",
+				"value": 1000,
+				"score": 10
+			},
+			{
+				"name": "rule_2",
+				"type": "velocity",
+				"key_field": "card_hash",
+				"window": "1h",
+				"threshold": 5,
+				"score": 20
+			},
+			{
+				"name": "rule_3",
+				"type": "simple",
+				"field": "hour",
+				"operator": "lte",
+				"value": 6,
+				"score": 15
+			}
+		]
+	}`)
+
+	rules, err := loader.Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 rules, got %d", len(rules))
+	}
+}
+
+func TestLoad_ParseWindow_NegativeWindow_ReturnsError(t *testing.T) {
+	path := writeTempFile(t, `{
+		"rules": [{
+			"name": "neg_window",
+			"type": "velocity",
+			"key_field": "merchant_id",
+			"window": "-5m",
+			"threshold": 5,
+			"score": 10
+		}]
+	}`)
+
+	_, err := loader.Load(path)
+	if err == nil {
+		t.Error("expected error for negative window, got nil")
+	}
+}
