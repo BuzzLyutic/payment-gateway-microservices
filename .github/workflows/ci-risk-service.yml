@@ -1,0 +1,121 @@
+name: CI — Risk Service
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'services/risk-service/**'
+      - '.github/workflows/ci-risk-service.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'services/risk-service/**'
+      - '.github/workflows/ci-risk-service.yml'
+
+defaults:
+  run:
+    working-directory: services/risk-service
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: services/risk-service/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Debug - verify dependencies
+        run: |
+          go mod verify
+          go build ./...
+          # Проверить что пакет реально доступен
+          go list -m github.com/redis/go-redis/v9
+
+      - name: Clean golangci-lint cache
+        run: |
+          mkdir -p ~/.cache/golangci-lint
+          rm -rf ~/.cache/golangci-lint/*
+
+      - name: go vet (fallback вместо golangci-lint)
+        run: go vet ./...
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: services/risk-service/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests with coverage
+        run: |
+          go test ./... \
+            -v \
+            -race \
+            -count=1 \
+            -coverprofile=coverage.out \
+            -covermode=atomic
+        
+      - name: Show coverage details
+        run: |
+          echo "=== Full coverage report ==="
+          go tool cover -func=coverage.out
+          echo "=== Total line ==="
+          go tool cover -func=coverage.out | grep "^total:"
+          echo "=== Extracted value ==="
+          go tool cover -func=coverage.out | grep "^total:" | awk '{print $3}'
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out \
+            | grep "^total:" \
+            | awk '{print $3}' \
+            | sed 's/%//')
+          
+          echo "Total coverage: ${COVERAGE}%"
+          
+          # bc корректно работает с float
+          BELOW=$(echo "${COVERAGE} < 57" | bc -l)
+          if [ "$BELOW" -eq 1 ]; then
+            echo "FAIL: ${COVERAGE}% < 57%"
+            exit 1
+          fi
+          echo "OK: ${COVERAGE}% >= 57%"
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [ lint, test ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag risk-service:${{ github.sha }} \
+            --file Dockerfile \
+            .
+
+      - name: Check image size
+        run: |
+          SIZE=$(docker image inspect risk-service:${{ github.sha }} \
+            --format='{{.Size}}')
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "Image size: ${SIZE_MB}MB"
+          if [ "$SIZE_MB" -gt 100 ]; then
+            echo "Image too large: ${SIZE_MB}MB > 100MB"
+            exit 1
+          fi

@@ -194,3 +194,202 @@ func TestTransactionService_ProcessPending_PublishError_ContinuesBatch(t *testin
 		t.Errorf("count = %d, want 2", count)
 	}
 }
+
+func TestStrPtr_EmptyString_ReturnsNil(t *testing.T) {
+	// strPtr("") должен вернуть nil (= NULL в БД).
+	// Тестируем через CreatePayment с пустыми опциональными полями.
+	repo := &mockRepo{}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	tx, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
+		IdempotencyKey: "key-1",
+		MerchantID:     "m_123",
+		Amount:         10000,
+		Currency:       "RUB",
+		Description:    "",    // пустой → nil
+		CardHash:       "",    // пустой → nil
+		CustomerIP:     "",    // пустой → nil
+		CustomerEmail:  "",    // пустой → nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Пустые поля должны быть nil в транзакции.
+	if tx.Description != nil {
+		t.Errorf("Description: expected nil for empty string, got %q", *tx.Description)
+	}
+	if tx.CardHash != nil {
+		t.Errorf("CardHash: expected nil for empty string, got %q", *tx.CardHash)
+	}
+	if tx.CustomerIP != nil {
+		t.Errorf("CustomerIP: expected nil for empty string, got %q", *tx.CustomerIP)
+	}
+	if tx.CustomerEmail != nil {
+		t.Errorf("CustomerEmail: expected nil for empty string, got %q", *tx.CustomerEmail)
+	}
+}
+
+func TestStrPtr_NonEmptyString_ReturnsPointer(t *testing.T) {
+	// strPtr("value") должен вернуть *string.
+	repo := &mockRepo{}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	tx, err := svc.CreatePayment(context.Background(), CreatePaymentRequest{
+		IdempotencyKey: "key-2",
+		MerchantID:     "m_123",
+		Amount:         10000,
+		Currency:       "RUB",
+		Description:    "Test payment",
+		CardHash:       "abc123hash",
+		CustomerIP:     "192.168.1.1",
+		CustomerEmail:  "user@example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if tx.Description == nil || *tx.Description != "Test payment" {
+		t.Errorf("Description: expected %q, got %v", "Test payment", tx.Description)
+	}
+	if tx.CardHash == nil || *tx.CardHash != "abc123hash" {
+		t.Errorf("CardHash: expected %q, got %v", "abc123hash", tx.CardHash)
+	}
+	if tx.CustomerIP == nil || *tx.CustomerIP != "192.168.1.1" {
+		t.Errorf("CustomerIP: expected %q, got %v", "192.168.1.1", tx.CustomerIP)
+	}
+	if tx.CustomerEmail == nil || *tx.CustomerEmail != "user@example.com" {
+		t.Errorf("CustomerEmail: expected %q, got %v", "user@example.com", tx.CustomerEmail)
+	}
+}
+
+func TestDerefStr_NilPointer_ReturnsEmpty(t *testing.T) {
+	// derefStr(nil) → "" — тестируем через processOne с nil полями.
+	repo := &mockRepo{
+		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
+			return []*domain.Transaction{
+				{
+					ID:            "tx-nil-fields",
+					Amount:        5000,
+					Currency:      "USD",
+					MerchantID:    "merchant-001",
+					PaymentMethod: "card",
+					Status:        domain.StatusPending,
+					CardHash:      nil, // nil → derefStr → ""
+					CustomerIP:    nil,
+					CustomerEmail: nil,
+					CreatedAt:     time.Now(),
+				},
+			}, nil
+		},
+	}
+
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	count, err := svc.ProcessPendingPayments(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	// Проверяем что nil поля стали пустыми строками в событии.
+	if len(pub.publishedEvents) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(pub.publishedEvents))
+	}
+	e := pub.publishedEvents[0]
+	if e.CardHash != "" {
+		t.Errorf("CardHash: expected empty string for nil, got %q", e.CardHash)
+	}
+	if e.CustomerIP != "" {
+		t.Errorf("CustomerIP: expected empty string for nil, got %q", e.CustomerIP)
+	}
+	if e.CustomerEmail != "" {
+		t.Errorf("CustomerEmail: expected empty string for nil, got %q", e.CustomerEmail)
+	}
+}
+
+func TestDerefStr_NonNilPointer_ReturnsValue(t *testing.T) {
+	// derefStr(&"value") → "value"
+	cardHash := "hash_abc123"
+	customerIP := "10.0.0.1"
+	customerEmail := "test@example.com"
+
+	repo := &mockRepo{
+		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
+			return []*domain.Transaction{
+				{
+					ID:            "tx-with-fields",
+					Amount:        5000,
+					Currency:      "USD",
+					MerchantID:    "merchant-001",
+					PaymentMethod: "card",
+					Status:        domain.StatusPending,
+					CardHash:      &cardHash,
+					CustomerIP:    &customerIP,
+					CustomerEmail: &customerEmail,
+					CreatedAt:     time.Now(),
+				},
+			}, nil
+		},
+	}
+
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	_, err := svc.ProcessPendingPayments(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(pub.publishedEvents) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(pub.publishedEvents))
+	}
+	e := pub.publishedEvents[0]
+	if e.CardHash != cardHash {
+		t.Errorf("CardHash: got %q, want %q", e.CardHash, cardHash)
+	}
+	if e.CustomerIP != customerIP {
+		t.Errorf("CustomerIP: got %q, want %q", e.CustomerIP, customerIP)
+	}
+	if e.CustomerEmail != customerEmail {
+		t.Errorf("CustomerEmail: got %q, want %q", e.CustomerEmail, customerEmail)
+	}
+}
+
+func TestProcessPendingPayments_FetchError(t *testing.T) {
+	repo := &mockRepo{
+		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
+			return nil, errors.New("database connection lost")
+		},
+	}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	_, err := svc.ProcessPendingPayments(context.Background(), 10)
+	if err == nil {
+		t.Fatal("expected error for fetch failure, got nil")
+	}
+}
+
+func TestProcessPendingPayments_EmptyBatch(t *testing.T) {
+	repo := &mockRepo{
+		fetchPendFn: func(_ context.Context, _ int) ([]*domain.Transaction, error) {
+			return []*domain.Transaction{}, nil
+		},
+	}
+	pub := &mockPublisher{}
+	svc := New(repo, pub)
+
+	count, err := svc.ProcessPendingPayments(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for empty batch", count)
+	}
+}

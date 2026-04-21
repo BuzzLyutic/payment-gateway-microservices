@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/your-org/api-gateway/internal/auth"
-	"github.com/your-org/api-gateway/internal/middleware"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/auth"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/middleware"
 )
 
 func newIntegrationRedis(t *testing.T) *redis.Client {

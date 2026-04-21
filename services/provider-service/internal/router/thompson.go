@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/domain"
 )
@@ -144,11 +145,27 @@ func (s *ProviderStats) successProbability() float64 {
 type Router struct {
 	mu    sync.RWMutex
 	stats map[string]*ProviderStats // ключ: provider.Name
+	// store — персистентность в Redis.
+	// nil если Redis недоступен — работаем без персистентности.
+	store *Store
+
+	// txCounts — счётчик транзакций по провайдеру для периодического flush.
+	txCounts map[string]int
 }
 
 func NewRouter() *Router {
 	return &Router{
-		stats: make(map[string]*ProviderStats),
+		stats:    make(map[string]*ProviderStats),
+		txCounts: make(map[string]int),
+	}
+}
+
+// NewRouterWithStore создаёт Router с персистентностью в Redis.
+func NewRouterWithStore(store *Store) *Router {
+	return &Router{
+		stats:    make(map[string]*ProviderStats),
+		store:    store,
+		txCounts: make(map[string]int),
 	}
 }
 
@@ -240,6 +257,16 @@ func (r *Router) RecordResult(providerName string, success bool, latencyMs int64
 		"latency_ms", latencyMs,
 		"success_prob", fmt.Sprintf("%.4f", stats.successProbability()),
 	)
+
+	// Периодический flush в Redis каждые persistEvery транзакций
+	r.mu.Lock()
+	r.txCounts[providerName]++
+	count := r.txCounts[providerName]
+	r.mu.Unlock()
+
+	if count%persistEvery == 0 {
+		r.persistStats(providerName, stats)
+	}
 }
 
 // OnHalfOpen вызывается Circuit Breaker при переходе провайдера в HalfOpen.
@@ -247,6 +274,104 @@ func (r *Router) RecordResult(providerName string, success bool, latencyMs int64
 func (r *Router) OnHalfOpen(providerName string) {
 	stats := r.getOrCreate(providerName)
 	stats.resetForHalfOpen()
+
+	// Сразу сохраняем сброшенные параметры —
+	// при рестарте после CB события должны восстановиться корректно
+	r.persistStats(providerName, stats)
+}
+
+// GetParams возвращает текущие параметры бета-распределения провайдера.
+// Используется для экспорта метрик Prometheus.
+func (r *Router) GetParams(providerName string) (alpha, beta float64) {
+	stats := r.getOrCreate(providerName)
+	stats.mu.Lock()
+	defer stats.mu.Unlock()
+	return stats.alpha, stats.beta
+}
+
+// LoadFromStore загружает статистику из Redis при старте.
+// Вызывается один раз из main.go после создания Router.
+func (r *Router) LoadFromStore(ctx context.Context, providerNames []string) error {
+	if r.store == nil {
+		return nil
+	}
+
+	snapshots, err := r.store.LoadAll(ctx, providerNames)
+	if err != nil {
+		return fmt.Errorf("load from store: %w", err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for name, snap := range snapshots {
+		stats := &ProviderStats{
+			alpha:     snap.Alpha,
+			beta:      snap.Beta,
+			latencies: snap.Latencies,
+			maxWindow: 100,
+		}
+		r.stats[name] = stats
+
+		slog.Info("thompson sampling: loaded stats from redis",
+			"provider", name,
+			"alpha", fmt.Sprintf("%.4f", snap.Alpha),
+			"beta", fmt.Sprintf("%.4f", snap.Beta),
+			"latencies_count", len(snap.Latencies),
+			"success_prob", fmt.Sprintf("%.4f", snap.Alpha/(snap.Alpha+snap.Beta)),
+		)
+	}
+
+	// Провайдеры без сохранённой статистики получат априорное Beta(1,1)
+	// при первом обращении через getOrCreate
+	loaded := len(snapshots)
+	slog.Info("thompson sampling: restore complete",
+		"loaded", loaded,
+		"total", len(providerNames),
+		"fresh_start", len(providerNames)-loaded,
+	)
+
+	return nil
+}
+
+// persistStats сохраняет статистику провайдера в Redis.
+// Вызывается внутри RecordResult каждые persistEvery транзакций.
+// Не блокирует основной поток — ошибки только логируются.
+func (r *Router) persistStats(providerName string, stats *ProviderStats) {
+	if r.store == nil {
+		slog.Warn("thompson sampling: store is nil, skipping persist",
+			"provider", providerName,
+		)
+		return
+	}
+
+	// Снимаем снапшот под локом stats
+	stats.mu.Lock()
+	alpha := stats.alpha
+	beta := stats.beta
+	latencies := make([]float64, len(stats.latencies))
+	copy(latencies, stats.latencies)
+	stats.mu.Unlock()
+
+	// Сохраняем асинхронно чтобы не блокировать обработку транзакций
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if err := r.store.Save(ctx, providerName, alpha, beta, latencies); err != nil {
+			slog.Warn("thompson sampling: failed to persist stats",
+				"provider", providerName,
+				"error", err,
+			)
+			return
+		}
+
+		slog.Debug("thompson sampling: stats persisted",
+			"provider", providerName,
+			"alpha", fmt.Sprintf("%.4f", alpha),
+			"beta", fmt.Sprintf("%.4f", beta),
+		)
+	}()
 }
 
 // --- вспомогательные функции ---
@@ -291,13 +416,4 @@ func sortFloat64(a []float64) {
 		}
 		a[j+1] = key
 	}
-}
-
-// GetParams возвращает текущие параметры бета-распределения провайдера.
-// Используется для экспорта метрик Prometheus.
-func (r *Router) GetParams(providerName string) (alpha, beta float64) {
-	stats := r.getOrCreate(providerName)
-	stats.mu.Lock()
-	defer stats.mu.Unlock()
-	return stats.alpha, stats.beta
 }

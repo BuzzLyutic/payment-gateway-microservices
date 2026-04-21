@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/auth"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/health"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/middleware"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/proxy"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {

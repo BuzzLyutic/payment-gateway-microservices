@@ -12,7 +12,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
-	Worker WorkerConfig
+	Worker   WorkerConfig
 	NATS     NATSConfig
 	LogLevel slog.Level
 }
@@ -38,16 +38,15 @@ type RedisConfig struct {
 }
 
 type WorkerConfig struct {
-	Interval time.Duration
+	Interval  time.Duration
 	BatchSize int
 }
-
 
 func (dc DatabaseConfig) DSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		dc.User, dc.Password, dc.Host, dc.Port, dc.Name,
-	 )
+	)
 }
 
 func Load() *Config {
@@ -56,8 +55,8 @@ func Load() *Config {
 			Port: getEnv("SERVER_PORT", "8080"),
 		},
 		Database: DatabaseConfig{
-			Host: getEnv("DB_HOST", "localhost"),
-			Port: getEnv("DB_PORT", "5432"),
+			Host:     getEnv("DB_HOST", "localhost"),
+			Port:     getEnv("DB_PORT", "5432"),
 			User:     getEnv("DB_USER", "payment"),
 			Password: getEnv("DB_PASSWORD", "payment_secret"),
 			Name:     getEnv("DB_NAME", "payment_gateway"),
@@ -70,7 +69,7 @@ func Load() *Config {
 			BatchSize: getEnvInt("WORKER_BATCH_SIZE", 10),
 		},
 		NATS: NATSConfig{
-    		URL: getEnv("NATS_URL", "nats://localhost:4222"),
+			URL: getEnv("NATS_URL", "nats://localhost:4222"),
 		},
 		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
 	}

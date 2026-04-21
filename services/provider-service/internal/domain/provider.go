@@ -12,16 +12,16 @@ const (
 
 // Provider - доменная сущность платёжного провайдера.
 type Provider struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Type           string            `json:"type"`            // mock, stripe
-	Status         ProviderStatus    `json:"status"`
-	Currencies     []string          `json:"currencies"`      // [RUB, USD, EUR]
-	PaymentMethods []string          `json:"payment_methods"` // [card, sbp]
-	CommissionPct  float64           `json:"commission_pct"`
-	Config 		   map[string]any    `json:"config,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Type           string         `json:"type"` // mock, stripe
+	Status         ProviderStatus `json:"status"`
+	Currencies     []string       `json:"currencies"`      // [RUB, USD, EUR]
+	PaymentMethods []string       `json:"payment_methods"` // [card, sbp]
+	CommissionPct  float64        `json:"commission_pct"`
+	Config         map[string]any `json:"config,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 // SupportsTransaction проверяет, может ли провайдер обработать транзакцию

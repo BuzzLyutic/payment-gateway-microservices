@@ -12,11 +12,10 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/provider-service/internal/router"
 )
 
-
 func TestMain(m *testing.M) {
-    // Отключаем slog во время тестов
-    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-    os.Exit(m.Run())
+	// Отключаем slog во время тестов
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
 }
 
 // Хелперы
@@ -249,7 +248,7 @@ func TestRouter_Select_PrefersLowerCommission_WhenSuccessEqual(t *testing.T) {
 	warmup(r, "provider_cheap", 50, 50, 100)
 	warmup(r, "provider_expensive", 50, 50, 100)
 
-	providerCheap := newProvider("provider_cheap", 0.5)     // низкая комиссия
+	providerCheap := newProvider("provider_cheap", 0.5)         // низкая комиссия
 	providerExpensive := newProvider("provider_expensive", 2.9) // высокая комиссия
 	providers := []*domain.Provider{providerCheap, providerExpensive}
 
@@ -378,5 +377,80 @@ func TestRouter_Select_NeverPanics(t *testing.T) {
 		if err != nil {
 			t.Fatalf("call %d: unexpected error: %v", i, err)
 		}
+	}
+}
+
+func TestRouter_GetParams_ReturnsAlphaBeta(t *testing.T) {
+	r := router.NewRouter()
+
+	// До любых записей — априорные значения (alpha=1, beta=1)
+	alpha, beta := r.GetParams("new_provider")
+
+	if alpha <= 0 {
+		t.Errorf("alpha = %v, want > 0", alpha)
+	}
+	if beta <= 0 {
+		t.Errorf("beta = %v, want > 0", beta)
+	}
+}
+
+func TestRouter_GetParams_ChangesAfterRecordResult(t *testing.T) {
+	r := router.NewRouter()
+
+	alphaBefore, betaBefore := r.GetParams("provider_a")
+
+	// Записываем успехи — alpha должна вырасти
+	for i := 0; i < 10; i++ {
+		r.RecordResult("provider_a", true, 100)
+	}
+
+	alphaAfter, _ := r.GetParams("provider_a")
+
+	if alphaAfter <= alphaBefore {
+		t.Errorf("alpha after successes (%v) should be > alpha before (%v)",
+			alphaAfter, alphaBefore)
+	}
+
+	_ = betaBefore
+}
+
+func TestRouter_GetParams_BetaIncreasesOnFailure(t *testing.T) {
+	r := router.NewRouter()
+
+	_, betaBefore := r.GetParams("provider_b")
+
+	// Записываем неудачи — beta должна вырасти
+	for i := 0; i < 10; i++ {
+		r.RecordResult("provider_b", false, 100)
+	}
+
+	_, betaAfter := r.GetParams("provider_b")
+
+	if betaAfter <= betaBefore {
+		t.Errorf("beta after failures (%v) should be > beta before (%v)",
+			betaAfter, betaBefore)
+	}
+}
+
+func TestNewRouterWithStore_NotNil(t *testing.T) {
+	// NewRouterWithStore(nil) — store=nil допустим (работает без персистентности)
+	r := router.NewRouterWithStore(nil)
+	if r == nil {
+		t.Fatal("NewRouterWithStore(nil) returned nil")
+	}
+}
+
+func TestNewRouterWithStore_WorksLikeNewRouter(t *testing.T) {
+	// С nil store поведение идентично NewRouter()
+	r := router.NewRouterWithStore(nil)
+
+	p := newProvider("provider_x", 1.0)
+
+	selected, err := r.Select(context.Background(), []*domain.Provider{p})
+	if err != nil {
+		t.Fatalf("Select() error: %v", err)
+	}
+	if selected.Name != "provider_x" {
+		t.Errorf("selected = %q, want %q", selected.Name, "provider_x")
 	}
 }

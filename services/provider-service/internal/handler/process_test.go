@@ -214,3 +214,46 @@ func TestProcessHandler_ContentType(t *testing.T) {
 		t.Errorf("expected Content-Type=application/json, got: %v", ct)
 	}
 }
+
+func TestProcessHandler_ValidationError_MissingPaymentMethod(t *testing.T) {
+	// Эта ветка validateRequest не покрыта — payment_method отсутствует
+	h := handler.NewProcessHandler(&mockProcessor{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := map[string]any{
+		"transaction_id": "tx_001",
+		"merchant_id":    "merchant_1",
+		"amount":         10000,
+		"currency":       "RUB",
+		// payment_method отсутствует
+	}
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, newProcessRequest(t, body))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing payment_method, got %d", rr.Code)
+	}
+}
+
+func TestProcessHandler_ValidationError_MissingMerchantID(t *testing.T) {
+	h := handler.NewProcessHandler(&mockProcessor{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+
+	body := map[string]any{
+		"transaction_id": "tx_001",
+		// merchant_id отсутствует
+		"amount":         10000,
+		"currency":       "RUB",
+		"payment_method": "card",
+	}
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, newProcessRequest(t, body))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing merchant_id, got %d", rr.Code)
+	}
+}

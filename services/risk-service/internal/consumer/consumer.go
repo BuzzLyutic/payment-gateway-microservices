@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/evaluator"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/events"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/publisher"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 const (
@@ -24,10 +24,10 @@ const (
 
 // Consumer подписывается на payments.created и orchestrates обработку.
 type Consumer struct {
-	js        jetstream.JetStream
-	eval      *evaluator.Evaluator
-	pub       *publisher.Publisher
-	logger    *slog.Logger
+	js     jetstream.JetStream
+	eval   *evaluator.Evaluator
+	pub    *publisher.Publisher
+	logger *slog.Logger
 }
 
 func New(
@@ -104,12 +104,12 @@ func (c *Consumer) createOrUpdateConsumer(ctx context.Context) (jetstream.Consum
 	return c.js.CreateOrUpdateConsumer(ctx, events.StreamName, jetstream.ConsumerConfig{
 		// Durable — consumer переживает перезапуск сервиса.
 		// NATS запомнит позицию и доставит непрочитанные сообщения.
-		Durable:        events.ConsumerGroupRiskEvaluator,
-		FilterSubject:  events.SubjectPaymentCreated,
-		AckPolicy:      jetstream.AckExplicitPolicy,
-		AckWait:        ackWait,
-		MaxDeliver:     maxDeliver,
-		DeliverPolicy:  jetstream.DeliverAllPolicy,
+		Durable:       events.ConsumerGroupRiskEvaluator,
+		FilterSubject: events.SubjectPaymentCreated,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       ackWait,
+		MaxDeliver:    maxDeliver,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
 	})
 }
 

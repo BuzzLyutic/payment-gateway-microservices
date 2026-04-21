@@ -10,9 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-	"github.com/redis/go-redis/v9"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/config"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/consumer"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/engine"
@@ -20,6 +17,9 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/health"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/loader"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/publisher"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {

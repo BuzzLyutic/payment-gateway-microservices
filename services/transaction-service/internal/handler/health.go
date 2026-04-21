@@ -19,14 +19,14 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-type HealthHandler struct{
-	db Pinger
+type HealthHandler struct {
+	db    Pinger
 	redis Pinger
 }
 
 func NewHealthHandler(db, redis Pinger) *HealthHandler {
 	return &HealthHandler{
-		db: db,
+		db:    db,
 		redis: redis,
 	}
 }
@@ -39,7 +39,7 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	checks := map[string]string{}
 	overallStatus := "healthy"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	// PostgreSQL

@@ -185,7 +185,6 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toPaymentResponse(tx))
 }
 
-
 // GetPayment - GET /api/v1/payments/{id}
 func (h *PaymentHandler) GetPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

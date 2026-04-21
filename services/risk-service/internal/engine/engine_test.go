@@ -1,16 +1,16 @@
 package engine_test
 
 import (
-    "context"
-    "testing"
-    "time"
+	"context"
+	"testing"
+	"time"
 
-    "github.com/redis/go-redis/v9"
-    "github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/domain"
-    "github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/engine"
-    "github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/events"
-    "log/slog"
-    "os"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/domain"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/engine"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/events"
+	"github.com/redis/go-redis/v9"
+	"log/slog"
+	"os"
 )
 
 func newTestLogger() *slog.Logger {

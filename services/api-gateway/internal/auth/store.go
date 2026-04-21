@@ -1,39 +1,39 @@
 package auth
 
 import (
-    "context"
-    "crypto/sha256"
-    "errors"
-    "fmt"
-    "strconv"
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"strconv"
 
-    "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
-    keyPrefix = "apikeys"
+	keyPrefix = "apikeys"
 )
 
 var (
-    ErrMissingKey  = errors.New("missing API key")
-    ErrInvalidKey  = errors.New("invalid or inactive API key")
+	ErrMissingKey = errors.New("missing API key")
+	ErrInvalidKey = errors.New("invalid or inactive API key")
 )
 
 // MerchantInfo — данные мерчанта, извлечённые из Redis по API-ключу.
 type MerchantInfo struct {
-    MerchantID  string
-    Name        string
-    RateLimit   int
+	MerchantID string
+	Name       string
+	RateLimit  int
 }
 
 // Store отвечает за lookup API-ключей в Redis.
 type Store struct {
-    rdb          *redis.Client
-    defaultLimit int
+	rdb          *redis.Client
+	defaultLimit int
 }
 
 func NewStore(rdb *redis.Client, defaultLimit int) *Store {
-    return &Store{rdb: rdb, defaultLimit: defaultLimit}
+	return &Store{rdb: rdb, defaultLimit: defaultLimit}
 }
 
 // Lookup проверяет API-ключ и возвращает данные мерчанта.

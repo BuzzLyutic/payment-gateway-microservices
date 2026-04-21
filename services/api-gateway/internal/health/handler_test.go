@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/api-gateway/internal/health"
+	"github.com/redis/go-redis/v9"
 )
 
 func newTestLogger() *slog.Logger {

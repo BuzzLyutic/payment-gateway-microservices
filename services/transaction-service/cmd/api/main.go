@@ -90,14 +90,13 @@ func main() {
 	h = middleware.RequestID(h)
 	h = middleware.Recover(h)
 
-
 	// HTTP-сервер
 	srv := &http.Server{
-		Addr: ":" + cfg.Server.Port,
-		Handler: h,
-		ReadTimeout: 10 * time.Second,
+		Addr:         ":" + cfg.Server.Port,
+		Handler:      h,
+		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
-		IdleTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Контекст для фоновых горутин

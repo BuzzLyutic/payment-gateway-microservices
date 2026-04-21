@@ -29,12 +29,12 @@ func New(repo StatusUpdater) *Consumer {
 // Start запускает консьюмера. Блокирует до отмены контекста.
 func (c *Consumer) Start(ctx context.Context, js jetstream.JetStream) error {
 	cons, err := js.CreateOrUpdateConsumer(ctx, events.StreamName, jetstream.ConsumerConfig{
-		Name:          "transaction-updater",
+		Name: "transaction-updater",
 		FilterSubjects: []string{
 			events.SubjectPaymentCompleted,
 			events.SubjectPaymentRiskBlocked,
 		},
-		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckPolicy: jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
 		return err

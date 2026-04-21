@@ -3,8 +3,8 @@ package events
 import "time"
 
 const (
-	SubjectPaymentCreated   = "payment.created"
-	SubjectPaymentCompleted = "payment.completed"
+	SubjectPaymentCreated      = "payment.created"
+	SubjectPaymentCompleted    = "payment.completed"
 	SubjectPaymentRiskApproved = "payment.risk_approved"
 	SubjectPaymentRiskBlocked  = "payment.risk_blocked"
 

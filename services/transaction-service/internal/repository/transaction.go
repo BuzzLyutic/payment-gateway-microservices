@@ -23,7 +23,7 @@ func New(ctx context.Context, dsn string) (*TransactionRepository, error) {
 	}
 	config.MaxConns = 10
 	config.MinConns = 2
-	
+
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating new pool: %w", err)
@@ -48,7 +48,6 @@ func (tr *TransactionRepository) Ping(ctx context.Context) error {
 func (tr *TransactionRepository) Close() {
 	tr.pool.Close()
 }
-
 
 // Create вставляет новую транзакцию и возвращает её с заполненными id, created_at, updated_at.
 func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transaction) error {
@@ -84,7 +83,6 @@ func (tr *TransactionRepository) Create(ctx context.Context, tx *domain.Transact
 
 	return nil
 }
-
 
 // GetByID возвращает транзакцию по ID.
 func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain.Transaction, error) {
@@ -127,7 +125,6 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id string) (*domain
 	return tx, nil
 }
 
-
 // FetchPending атомарно выбирает pending-транзакции и переводит их в processing.
 // FOR UPDATE SKIP LOCKED безопасно при нескольких инстансах воркера.
 func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]*domain.Transaction, error) {
@@ -162,10 +159,10 @@ func (r *TransactionRepository) FetchPending(ctx context.Context, limit int) ([]
 
 		err := rows.Scan(
 			&tx.ID, &tx.IdempotencyKey, &tx.MerchantID,
-			&tx.Amount, &tx.Currency, &tx.PaymentMethod, 
+			&tx.Amount, &tx.Currency, &tx.PaymentMethod,
 			&tx.Status,
 			&tx.Description, &tx.Provider, &tx.ProviderTxID,
-			&tx.ErrorMessage, 
+			&tx.ErrorMessage,
 			&tx.CardHash, &tx.CustomerIP, &tx.CustomerEmail,
 			&metadataJSON,
 			&tx.CreatedAt, &tx.UpdatedAt,

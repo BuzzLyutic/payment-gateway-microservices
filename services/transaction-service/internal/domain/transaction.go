@@ -44,9 +44,9 @@ type Transaction struct {
 	Currency       string            `json:"currency"`
 	PaymentMethod  string            `json:"payment_method"`
 	Status         Status            `json:"status"`
-	Description    *string           `json:"description,omitempty"`   
-	Provider       *string           `json:"provider,omitempty"`       
-	ProviderTxID   *string           `json:"provider_tx_id,omitempty"` 
+	Description    *string           `json:"description,omitempty"`
+	Provider       *string           `json:"provider,omitempty"`
+	ProviderTxID   *string           `json:"provider_tx_id,omitempty"`
 	ErrorMessage   *string           `json:"error_message,omitempty"`
 	CardHash       *string           `json:"card_hash,omitempty"`
 	CustomerIP     *string           `json:"customer_ip,omitempty"`
