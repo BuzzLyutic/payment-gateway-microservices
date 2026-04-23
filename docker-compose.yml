@@ -100,6 +100,7 @@ services:
       - NATS_URL=nats://nats:4222
       - REDIS_ADDR=redis:6379
       - REDIS_DB=1
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - LOG_LEVEL=debug
     depends_on:
       postgres-provider:
