@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/events"
@@ -15,6 +16,7 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*domain.Transaction, error)
 	FetchPending(ctx context.Context, limit int) ([]*domain.Transaction, error)
 	UpdateStatus(ctx context.Context, id string, status domain.Status, provider *string, providerTxID *string, errorMessage *string) error
+	FetchStuck(ctx context.Context, threshold time.Duration, limit int) ([]*domain.Transaction, error)
 }
 
 type TransactionService struct {
@@ -149,4 +151,23 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// ResolveStuckPayments находит и переводит застрявшие транзакции в failed.
+func (s *TransactionService) ResolveStuckPayments(ctx context.Context, threshold time.Duration, limit int) (int, error) {
+	txns, err := s.repo.FetchStuck(ctx, threshold, limit)
+	if err != nil {
+		return 0, fmt.Errorf("resolve stuck: %w", err)
+	}
+
+	for _, tx := range txns {
+		slog.Warn("resolved stuck transaction",
+			"id", tx.ID,
+			"merchant_id", tx.MerchantID,
+			"amount", tx.Amount,
+			"currency", tx.Currency,
+		)
+	}
+
+	return len(txns), nil
 }

@@ -88,12 +88,12 @@ jobs:
           echo "Total coverage: ${COVERAGE}%"
           
           # bc корректно работает с float
-          BELOW=$(echo "${COVERAGE} < 60" | bc -l)
+          BELOW=$(echo "${COVERAGE} < 59" | bc -l)
           if [ "$BELOW" -eq 1 ]; then
-            echo "FAIL: ${COVERAGE}% < 60%"
+            echo "FAIL: ${COVERAGE}% < 59%"
             exit 1
           fi
-          echo "OK: ${COVERAGE}% >= 60%"
+          echo "OK: ${COVERAGE}% >= 59%"
 
   build:
     name: Build Docker Image

@@ -16,6 +16,7 @@ type mockRepo struct {
 	getByIDFn    func(ctx context.Context, id string) (*domain.Transaction, error)
 	fetchPendFn  func(ctx context.Context, limit int) ([]*domain.Transaction, error)
 	updateStatFn func(ctx context.Context, id string, status domain.Status, prov, txID, errMsg *string) error
+	fetchStuckFn func(ctx context.Context, threshold time.Duration, limit int) ([]*domain.Transaction, error)
 }
 
 func (m *mockRepo) Create(ctx context.Context, tx *domain.Transaction) error {
@@ -45,6 +46,13 @@ func (m *mockRepo) UpdateStatus(ctx context.Context, id string, status domain.St
 		return m.updateStatFn(ctx, id, status, prov, txID, errMsg)
 	}
 	return nil
+}
+
+func (m *mockRepo) FetchStuck(ctx context.Context, threshold time.Duration, limit int) ([]*domain.Transaction, error) {
+	if m.fetchStuckFn != nil {
+		return m.fetchStuckFn(ctx, threshold, limit)
+	}
+	return nil, nil
 }
 
 type mockPublisher struct {
@@ -391,5 +399,85 @@ func TestProcessPendingPayments_EmptyBatch(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("count = %d, want 0 for empty batch", count)
+	}
+}
+
+// Тесты ResolveStuckPayments
+
+func TestResolveStuckPayments_Empty(t *testing.T) {
+	repo := &mockRepo{
+		fetchStuckFn: func(_ context.Context, _ time.Duration, _ int) ([]*domain.Transaction, error) {
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockPublisher{})
+
+	count, err := svc.ResolveStuckPayments(context.Background(), 10*time.Minute, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 resolved, got %d", count)
+	}
+}
+
+func TestResolveStuckPayments_Found(t *testing.T) {
+	stuckTxns := []*domain.Transaction{
+		{ID: "tx-stuck-1", MerchantID: "merch-1", Amount: 1000, Currency: "USD"},
+		{ID: "tx-stuck-2", MerchantID: "merch-1", Amount: 2000, Currency: "RUB"},
+	}
+	repo := &mockRepo{
+		fetchStuckFn: func(_ context.Context, _ time.Duration, _ int) ([]*domain.Transaction, error) {
+			return stuckTxns, nil
+		},
+	}
+	svc := New(repo, &mockPublisher{})
+
+	count, err := svc.ResolveStuckPayments(context.Background(), 10*time.Minute, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 resolved, got %d", count)
+	}
+}
+
+func TestResolveStuckPayments_RepoError(t *testing.T) {
+	repo := &mockRepo{
+		fetchStuckFn: func(_ context.Context, _ time.Duration, _ int) ([]*domain.Transaction, error) {
+			return nil, errors.New("db unavailable")
+		},
+	}
+	svc := New(repo, &mockPublisher{})
+
+	_, err := svc.ResolveStuckPayments(context.Background(), 10*time.Minute, 10)
+	if err == nil {
+		t.Fatal("expected error from repo")
+	}
+}
+
+func TestResolveStuckPayments_ThresholdAndLimitPassed(t *testing.T) {
+	var capturedThreshold time.Duration
+	var capturedLimit int
+
+	repo := &mockRepo{
+		fetchStuckFn: func(_ context.Context, threshold time.Duration, limit int) ([]*domain.Transaction, error) {
+			capturedThreshold = threshold
+			capturedLimit = limit
+			return nil, nil
+		},
+	}
+	svc := New(repo, &mockPublisher{})
+
+	wantThreshold := 15 * time.Minute
+	wantLimit := 7
+
+	_, _ = svc.ResolveStuckPayments(context.Background(), wantThreshold, wantLimit)
+
+	if capturedThreshold != wantThreshold {
+		t.Errorf("threshold: got %v, want %v", capturedThreshold, wantThreshold)
+	}
+	if capturedLimit != wantLimit {
+		t.Errorf("limit: got %d, want %d", capturedLimit, wantLimit)
 	}
 }

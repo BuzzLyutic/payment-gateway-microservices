@@ -23,6 +23,7 @@ import (
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/publisher"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/repository"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/service"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/webhook"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/worker"
 )
 
@@ -107,8 +108,18 @@ func main() {
 	w := worker.New(txService, cfg.Worker.Interval, cfg.Worker.BatchSize)
 	go w.Run(bgCtx)
 
+	webhookRepo := webhook.NewRepository(repo.Pool()) // нужен доступ к pool
+
+	// Webhook worker
+	webhookWorker := webhook.NewWorker(
+    	webhookRepo,
+    	30*time.Second, // интервал проверки
+    	10,             // batch size
+	)
+	go webhookWorker.Run(bgCtx)
+
 	// Consumer — слушает payment.completed
-	paymentConsumer := consumer.New(repo)
+	paymentConsumer := consumer.NewWithWebhook(repo, webhookRepo, repo.Pool())
 	go func() {
 		if err := paymentConsumer.Start(bgCtx, js); err != nil {
 			slog.Error("consumer error", "error", err)
