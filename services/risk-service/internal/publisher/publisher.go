@@ -12,9 +12,20 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// jetStreamPublisher — минимальный интерфейс для тестирования.
+// Позволяет мокать только нужный метод вместо всего jetstream.JetStream.
+type JetStreamPublisher interface {
+	Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error)
+}
+
+// NewWithJS создаёт Publisher с кастомным JS (для тестов).
+func NewWithJS(js JetStreamPublisher, logger *slog.Logger) *Publisher {
+	return &Publisher{js: js, logger: logger}
+}
+
 // Publisher публикует результаты оценки рисков в NATS JetStream.
 type Publisher struct {
-	js     jetstream.JetStream
+	js     JetStreamPublisher
 	logger *slog.Logger
 }
 
