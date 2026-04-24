@@ -7,9 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/evaluator"
+	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/domain"
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/events"
-	"github.com/BuzzLyutic/payment-gateway-microservices/services/risk-service/internal/publisher"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -22,18 +21,28 @@ const (
 	maxDeliver = 3
 )
 
+// Evaluator — интерфейс для подмены в тестах.
+type Evaluator interface {
+	Evaluate(ctx context.Context, event events.PaymentCreated) domain.EvaluationResult
+}
+
+// Publisher — интерфейс для подмены в тестах.
+type Publisher interface {
+	Publish(ctx context.Context, event events.PaymentCreated, result domain.EvaluationResult) error
+}
+
 // Consumer подписывается на payments.created и orchestrates обработку.
 type Consumer struct {
 	js     jetstream.JetStream
-	eval   *evaluator.Evaluator
-	pub    *publisher.Publisher
+	eval   Evaluator
+	pub    Publisher
 	logger *slog.Logger
 }
 
 func New(
 	js jetstream.JetStream,
-	eval *evaluator.Evaluator,
-	pub *publisher.Publisher,
+	eval Evaluator,
+	pub Publisher,
 	logger *slog.Logger,
 ) *Consumer {
 	return &Consumer{

@@ -83,6 +83,15 @@ func main() {
 		case "mock":
 			registry.Register(p.Name, adapter.NewMockAdapter(p.Config))
 			slog.Info("registered mock adapter", "provider", p.Name)
+		case "stripe":
+			if cfg.Stripe.SecretKey == "" {
+				slog.Warn("stripe secret key not configured, skipping",
+					"provider", p.Name,
+				)
+				continue
+			}
+			registry.Register(p.Name, adapter.NewStripeAdapter(cfg.Stripe.SecretKey))
+			slog.Info("registered stripe adapter", "provider", p.Name)
 		default:
 			slog.Warn("unknown provider type, skipping", "provider", p.Name, "type", p.Type)
 		}

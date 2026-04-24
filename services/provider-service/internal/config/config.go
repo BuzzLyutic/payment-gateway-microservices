@@ -12,7 +12,12 @@ type Config struct {
 	Database DatabaseConfig
 	NATS     NATSConfig
 	Redis    RedisConfig
+	Stripe   StripeConfig
 	LogLevel slog.Level
+}
+
+type StripeConfig struct {
+	SecretKey string
 }
 
 type RedisConfig struct {
@@ -63,6 +68,9 @@ func Load() *Config {
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
 			Password: getEnv("REDIS_PASSWORD", ""),
 			DB:       getEnvInt("REDIS_DB", 1), // DB=1 чтобы не конфликтовать с transaction-service
+		},
+		Stripe: StripeConfig{
+			SecretKey: getEnv("STRIPE_SECRET_KEY", ""),
 		},
 		LogLevel: parseLogLevel(getEnv("LOG_LEVEL", "info")),
 	}
