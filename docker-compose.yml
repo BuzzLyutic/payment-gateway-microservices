@@ -216,6 +216,15 @@ services:
       - prometheus
     restart: on-failure
 
+  # Webhook тестер — принимает POST и логирует payload
+  # Доступен внутри Docker сети как http://webhook-tester:9999
+  webhook-tester:
+    image: mendhak/http-https-echo:latest
+    ports:
+      - "9999:8080"
+    environment:
+      - HTTP_PORT=8080
+
 volumes:
   grafana_data:
   prometheus_data:

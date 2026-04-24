@@ -12,6 +12,7 @@ import (
 
 type mockProcessor struct {
 	callCount atomic.Int64
+	stuckCallCount atomic.Int64
 	results   []processorResult
 	idx       atomic.Int64
 }
@@ -29,6 +30,12 @@ func (m *mockProcessor) ProcessPendingPayments(_ context.Context, limit int) (in
 		r := m.results[i]
 		return r.count, r.err
 	}
+	return 0, nil
+}
+
+// ResolveStuckPayments — заглушка для тестов.
+func (m *mockProcessor) ResolveStuckPayments(_ context.Context, _ time.Duration, _ int) (int, error) {
+	m.stuckCallCount.Add(1)
 	return 0, nil
 }
 
@@ -162,4 +169,75 @@ func (c *captureProcessor) ProcessPendingPayments(_ context.Context, limit int) 
 		c.captureFn(limit)
 	}
 	return 0, nil
+}
+
+func (c *captureProcessor) ResolveStuckPayments(_ context.Context, _ time.Duration, _ int) (int, error) {
+	return 0, nil
+}
+
+// Тесты resolveStuck
+
+// TestWorker_ResolveStuck_Called — resolveStuck вызывает ResolveStuckPayments.
+func TestWorker_ResolveStuck_Called(t *testing.T) {
+	proc := &mockProcessor{}
+	w := worker.New(proc, time.Minute, 10)
+
+	w.ExportResolveStuck(context.Background())
+
+	if proc.stuckCallCount.Load() != 1 {
+		t.Errorf("expected 1 ResolveStuckPayments call, got %d",
+			proc.stuckCallCount.Load())
+	}
+}
+
+// TestWorker_ResolveStuck_ZeroCount — нет stuck транзакций, не паникуем.
+func TestWorker_ResolveStuck_ZeroCount(t *testing.T) {
+	proc := &mockProcessor{} // stuckCount = 0 по умолчанию
+	w := worker.New(proc, time.Minute, 10)
+
+	w.ExportResolveStuck(context.Background())
+
+	if proc.stuckCallCount.Load() != 1 {
+		t.Error("ResolveStuckPayments must be called even with zero count")
+	}
+}
+
+// TestWorker_ResolveStuck_NonZeroCount — найдены stuck транзакции.
+func TestWorker_ResolveStuck_NonZeroCount(t *testing.T) {
+	proc := &stuckCountProcessor{count: 3}
+	w := worker.New(proc, time.Minute, 10)
+
+	w.ExportResolveStuck(context.Background())
+
+	if !proc.called {
+		t.Error("ResolveStuckPayments must be called")
+	}
+}
+
+// Вспомогательные моки для resolveStuck
+
+// errorStuckProcessor — ResolveStuckPayments всегда возвращает ошибку.
+type errorStuckProcessor struct{}
+
+func (e *errorStuckProcessor) ProcessPendingPayments(_ context.Context, _ int) (int, error) {
+	return 0, nil
+}
+
+func (e *errorStuckProcessor) ResolveStuckPayments(_ context.Context, _ time.Duration, _ int) (int, error) {
+	return 0, errors.New("stuck db error")
+}
+
+// stuckCountProcessor — возвращает заданное количество stuck транзакций.
+type stuckCountProcessor struct {
+	count  int
+	called bool
+}
+
+func (s *stuckCountProcessor) ProcessPendingPayments(_ context.Context, _ int) (int, error) {
+	return 0, nil
+}
+
+func (s *stuckCountProcessor) ResolveStuckPayments(_ context.Context, _ time.Duration, _ int) (int, error) {
+	s.called = true
+	return s.count, nil
 }

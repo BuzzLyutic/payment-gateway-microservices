@@ -443,3 +443,255 @@ func TestHandle_UnknownSubject_Acks(t *testing.T) {
 		t.Error("UpdateStatus should not be called for unknown subject")
 	}
 }
+
+// Тесты buildWebhookPayload
+
+func TestBuildWebhookPayload_CapturedWithProvider(t *testing.T) {
+	provider := "mock_provider_a"
+	payload, err := consumer.ExportBuildWebhookPayload(
+		"tx-webhook-1",
+		"merch-1",
+		domain.StatusCaptured,
+		&provider,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	checks := map[string]string{
+		"event":          "payment.captured",
+		"transaction_id": "tx-webhook-1",
+		"merchant_id":    "merch-1",
+		"status":         "captured",
+		"provider":       "mock_provider_a",
+	}
+	for key, want := range checks {
+		got, ok := m[key]
+		if !ok {
+			t.Errorf("missing key %q in payload", key)
+			continue
+		}
+		if got.(string) != want {
+			t.Errorf("key %q: got %q, want %q", key, got, want)
+		}
+	}
+	if _, ok := m["timestamp"]; !ok {
+		t.Error("payload must contain timestamp")
+	}
+}
+
+func TestBuildWebhookPayload_NilProvider(t *testing.T) {
+	payload, err := consumer.ExportBuildWebhookPayload(
+		"tx-nil-provider",
+		"merch-2",
+		domain.StatusBlocked,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var m map[string]any
+	_ = json.Unmarshal(payload, &m)
+
+	provider, ok := m["provider"]
+	if !ok {
+		t.Error("provider key must be present even when nil")
+	}
+	if provider.(string) != "" {
+		t.Errorf("nil provider must result in empty string, got %q", provider)
+	}
+}
+
+func TestBuildWebhookPayload_BlockedStatus(t *testing.T) {
+	payload, err := consumer.ExportBuildWebhookPayload(
+		"tx-blocked",
+		"merch-3",
+		domain.StatusBlocked,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var m map[string]any
+	_ = json.Unmarshal(payload, &m)
+
+	if m["event"].(string) != "payment.blocked" {
+		t.Errorf("expected event=payment.blocked, got %q", m["event"])
+	}
+}
+
+// Тесты doUpdate через simpleUpdater
+
+// TestDoUpdate_SimpleUpdater_Success — New() использует simpleUpdater.
+func TestDoUpdate_SimpleUpdater_Success(t *testing.T) {
+	repo := &mockStatusUpdater{}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-simple-ok",
+			Status:        "captured",
+			Provider:      "mock_provider",
+		}),
+	}
+	c.ExportHandle(msg)
+
+	if !msg.acked {
+		t.Error("Ack must be called on success")
+	}
+	call, ok := repo.lastCall()
+	if !ok {
+		t.Fatal("UpdateStatus must be called")
+	}
+	if call.ID != "tx-simple-ok" {
+		t.Errorf("wrong transaction_id: %q", call.ID)
+	}
+	if call.Status != domain.StatusCaptured {
+		t.Errorf("wrong status: %q", call.Status)
+	}
+}
+
+// TestDoUpdate_SimpleUpdater_Error — UpdateStatus вернул ошибку → Nak.
+func TestDoUpdate_SimpleUpdater_Error(t *testing.T) {
+	repo := &mockStatusUpdater{
+		errOnID: map[string]error{
+			"tx-update-err": errors.New("db error"),
+		},
+	}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-update-err",
+			Status:        "captured",
+			Provider:      "mock_provider",
+		}),
+	}
+	c.ExportHandle(msg)
+
+	if !msg.naked {
+		t.Error("Nak must be called when UpdateStatus fails")
+	}
+	if msg.acked {
+		t.Error("Ack must not be called when UpdateStatus fails")
+	}
+}
+
+// Тесты handleCompleted — маппинг статусов
+
+func TestHandleCompleted_StatusDeclined(t *testing.T) {
+	repo := &mockStatusUpdater{}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-declined",
+			Status:        "declined",
+			Provider:      "mock_provider",
+			ErrorMessage:  "card declined",
+		}),
+	}
+	c.ExportHandle(msg)
+
+	call, ok := repo.lastCall()
+	if !ok {
+		t.Fatal("UpdateStatus must be called")
+	}
+	if call.Status != domain.StatusDeclined {
+		t.Errorf("expected declined, got %q", call.Status)
+	}
+	if call.ErrorMessage == nil || *call.ErrorMessage != "card declined" {
+		t.Error("error_message must be passed through")
+	}
+}
+
+func TestHandleCompleted_StatusFailed_UnknownStatus(t *testing.T) {
+	repo := &mockStatusUpdater{}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-unknown-status",
+			Status:        "something_unknown",
+		}),
+	}
+	c.ExportHandle(msg)
+
+	call, ok := repo.lastCall()
+	if !ok {
+		t.Fatal("UpdateStatus must be called")
+	}
+	if call.Status != domain.StatusFailed {
+		t.Errorf("unknown status must map to failed, got %q", call.Status)
+	}
+}
+
+func TestHandleCompleted_ProviderTxID(t *testing.T) {
+	repo := &mockStatusUpdater{}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-with-prov-id",
+			Status:        "captured",
+			Provider:      "stripe",
+			ProviderTxID:  "pi_stripe_123",
+		}),
+	}
+	c.ExportHandle(msg)
+
+	call, ok := repo.lastCall()
+	if !ok {
+		t.Fatal("UpdateStatus must be called")
+	}
+	if call.ProviderTxID == nil || *call.ProviderTxID != "pi_stripe_123" {
+		t.Error("provider_tx_id must be passed through")
+	}
+}
+
+func TestHandleCompleted_EmptyProviderTxID_IsNil(t *testing.T) {
+	repo := &mockStatusUpdater{}
+	c := consumer.New(repo)
+
+	msg := &mockMsg{
+		subject: events.SubjectPaymentCompleted,
+		data:    mustMarshal(t, events.PaymentCompleted{
+			TransactionID: "tx-no-prov-id",
+			Status:        "captured",
+			Provider:      "mock",
+			ProviderTxID:  "", // пустой
+		}),
+	}
+	c.ExportHandle(msg)
+
+	call, ok := repo.lastCall()
+	if !ok {
+		t.Fatal("UpdateStatus must be called")
+	}
+	if call.ProviderTxID != nil {
+		t.Errorf("empty ProviderTxID must be nil, got %q", *call.ProviderTxID)
+	}
+}
+
+// Хелпер
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return data
+}

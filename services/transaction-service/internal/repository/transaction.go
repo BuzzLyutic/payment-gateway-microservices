@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/BuzzLyutic/payment-gateway-microservices/services/transaction-service/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -211,4 +212,120 @@ func (r *TransactionRepository) UpdateStatus(
 	}
 
 	return nil
+}
+
+// FetchStuck находит транзакции, застрявшие в статусе processing.
+// Это происходит когда provider-service упал после смены статуса,
+// но до публикации payment.completed.
+// Порог: транзакции в processing дольше stuckThreshold переводятся в failed.
+func (r *TransactionRepository) FetchStuck(ctx context.Context, stuckThreshold time.Duration, limit int) ([]*domain.Transaction, error) {
+	query := `
+		WITH stuck AS (
+			SELECT id
+			FROM transactions
+			WHERE status = 'processing'
+			  AND updated_at < NOW() - $1::interval
+			ORDER BY updated_at ASC
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE transactions t
+		SET status = 'failed',
+		    error_message = 'processing timeout: no response from provider'
+		FROM stuck s
+		WHERE t.id = s.id
+		RETURNING t.id, t.idempotency_key, t.merchant_id, t.amount, t.currency,
+		          t.payment_method, t.status, t.description, t.provider, t.provider_tx_id,
+		          t.error_message, t.card_hash, t.customer_ip, t.customer_email,
+		          t.metadata, t.created_at, t.updated_at`
+
+	// pgx принимает interval как строку вида "10 minutes"
+	intervalStr := fmt.Sprintf("%d seconds", int(stuckThreshold.Seconds()))
+
+	rows, err := r.pool.Query(ctx, query, intervalStr, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch stuck: %w", err)
+	}
+	defer rows.Close()
+
+	var txns []*domain.Transaction
+	for rows.Next() {
+		tx := &domain.Transaction{}
+		var metadataJSON []byte
+
+		err := rows.Scan(
+			&tx.ID, &tx.IdempotencyKey, &tx.MerchantID,
+			&tx.Amount, &tx.Currency, &tx.PaymentMethod,
+			&tx.Status,
+			&tx.Description, &tx.Provider, &tx.ProviderTxID,
+			&tx.ErrorMessage,
+			&tx.CardHash, &tx.CustomerIP, &tx.CustomerEmail,
+			&metadataJSON,
+			&tx.CreatedAt, &tx.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan stuck transaction: %w", err)
+		}
+
+		if metadataJSON != nil {
+			if err := json.Unmarshal(metadataJSON, &tx.Metadata); err != nil {
+				return nil, fmt.Errorf("unmarshal metadata: %w", err)
+			}
+		}
+
+		txns = append(txns, tx)
+	}
+
+	return txns, rows.Err()
+}
+
+// Pool возвращает пул соединений для использования в транзакциях БД.
+// Используется consumer для атомарного обновления статуса + создания webhook delivery.
+func (tr *TransactionRepository) Pool() *pgxpool.Pool {
+    return tr.pool
+}
+
+// UpdateStatusInTx обновляет статус транзакции в рамках существующей pgx.Tx.
+// Используется consumer для атомарности с созданием webhook delivery.
+func (r *TransactionRepository) UpdateStatusInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	id string,
+	status domain.Status,
+	providerName *string,
+	providerTxID *string,
+	errorMessage *string,
+) error {
+	query := `
+		UPDATE transactions
+		SET status = $2, provider = $3, provider_tx_id = $4, error_message = $5
+		WHERE id = $1`
+
+	result, err := tx.Exec(ctx, query, id, status, providerName, providerTxID, errorMessage)
+	if err != nil {
+		return fmt.Errorf("update status in tx: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
+}
+
+// GetMerchantIDByTxID возвращает merchant_id транзакции в рамках существующей pgx.Tx.
+func (r *TransactionRepository) GetMerchantIDByTxID(
+	ctx context.Context,
+	tx pgx.Tx,
+	transactionID string,
+) (string, error) {
+	var merchantID string
+	err := tx.QueryRow(ctx,
+		"SELECT merchant_id FROM transactions WHERE id = $1",
+		transactionID,
+	).Scan(&merchantID)
+	if err != nil {
+		return "", fmt.Errorf("get merchant_id: %w", err)
+	}
+	return merchantID, nil
 }
