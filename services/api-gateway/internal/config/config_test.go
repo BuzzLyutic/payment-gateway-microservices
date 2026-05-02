@@ -58,8 +58,8 @@ func TestLoad_DefaultValues_WhenOptionalEnvNotSet(t *testing.T) {
 	if cfg.Port != "8080" {
 		t.Errorf("Port default: expected %q, got %q", "8080", cfg.Port)
 	}
-	if cfg.DefaultRateLimit != 100 {
-		t.Errorf("DefaultRateLimit default: expected 100, got %d", cfg.DefaultRateLimit)
+	if cfg.DefaultRateLimit != 1000 {
+		t.Errorf("DefaultRateLimit default: expected 1000, got %d", cfg.DefaultRateLimit)
 	}
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel default: expected %q, got %q", "info", cfg.LogLevel)
@@ -95,7 +95,7 @@ func TestLoad_MissingTransactionServiceURL_Panics(t *testing.T) {
 }
 
 func TestLoad_InvalidDefaultRateLimit_FallsBackToDefault(t *testing.T) {
-	// DEFAULT_RATE_LIMIT не парсится как int - fallback на 100.
+	// DEFAULT_RATE_LIMIT не парсится как int - fallback на 1000.
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	t.Setenv("TRANSACTION_SERVICE_URL", "http://localhost:8081")
 	t.Setenv("DEFAULT_RATE_LIMIT", "not-a-number")
@@ -105,8 +105,8 @@ func TestLoad_InvalidDefaultRateLimit_FallsBackToDefault(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.DefaultRateLimit != 100 {
-		t.Errorf("DefaultRateLimit fallback: expected 100, got %d", cfg.DefaultRateLimit)
+	if cfg.DefaultRateLimit != 1000 {
+		t.Errorf("DefaultRateLimit fallback: expected 1000, got %d", cfg.DefaultRateLimit)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestGetEnvInt_InvalidString_ReturnsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.DefaultRateLimit != 100 { // default из Load()
-		t.Errorf("expected default 100 for invalid int, got %d", cfg.DefaultRateLimit)
+	if cfg.DefaultRateLimit != 1000 { // default из Load()
+		t.Errorf("expected default 1000 for invalid int, got %d", cfg.DefaultRateLimit)
 	}
 }
