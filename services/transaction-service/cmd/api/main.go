@@ -110,10 +110,17 @@ func main() {
 
 	webhookRepo := webhook.NewRepository(repo.Pool()) // нужен доступ к pool
 
+	webhookInterval := 30 * time.Second
+	if v := os.Getenv("WEBHOOK_INTERVAL"); v != "" {
+    	if d, err := time.ParseDuration(v); err == nil && d > 0 {
+        	webhookInterval = d
+    	}
+	}
+
 	// Webhook worker
 	webhookWorker := webhook.NewWorker(
     	webhookRepo,
-    	30*time.Second, // интервал проверки
+    	webhookInterval, // интервал проверки
     	10,             // batch size
 	)
 	go webhookWorker.Run(bgCtx)

@@ -19,7 +19,7 @@ func Load() (*Config, error) {
 		Port:                  getEnv("PORT", "8080"),
 		RedisURL:              mustGetEnv("REDIS_URL"),
 		TransactionServiceURL: mustGetEnv("TRANSACTION_SERVICE_URL"),
-		DefaultRateLimit:      getEnvInt("DEFAULT_RATE_LIMIT", 100),
+		DefaultRateLimit:      getEnvInt("DEFAULT_RATE_LIMIT", 1000),
 		LogLevel:              getEnv("LOG_LEVEL", "info"),
 	}
 	return cfg, nil
